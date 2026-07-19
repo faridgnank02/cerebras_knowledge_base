@@ -11,3 +11,6 @@ embedding:
   dims: 1024
 db:
   dsn: postgresql://knowbase:knowbase@localhost:5433/knowbase
+search:
+  decay_tau_days: 180
+  decay_epsilon: 0.00005
