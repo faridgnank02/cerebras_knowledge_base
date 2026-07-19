@@ -78,6 +78,7 @@ def hybrid_search(
     tau_days: float = 180.0,
     epsilon: float = 5e-5,
     depth: int = 50,
+    reranker=None,
 ) -> list[SearchResult]:
     vec = canonicalize(vector_search(conn, embedder, query, limit=depth))
     try:
@@ -86,4 +87,7 @@ def hybrid_search(
         logger.warning("fts leg failed; degrading to vector-only", exc_info=True)
         lex = []
     fused = cap_per_file(rrf_fuse([vec, lex]))[:FUSED_POOL]
-    return apply_decay(fused, tau_days=tau_days, epsilon=epsilon)[:limit]
+    ranked = apply_decay(fused, tau_days=tau_days, epsilon=epsilon)
+    if reranker is not None:
+        return reranker.rerank(query, ranked, keep=limit)
+    return ranked[:limit]
