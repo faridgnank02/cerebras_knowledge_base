@@ -1,5 +1,55 @@
 # Eval questions for knowbase. Format:
 #   - question: natural-language question a user would type
 #     expected: [source_id, ...]   # any hit in top-k counts
-# Authored against the really-ingested corpus in Task 10 — see the plan.
-[]
+# Authored against the FastAPI corpus ingested 2026-07-19 (3000 issues + 687 code chunks).
+# Issue questions are paraphrased (not verbatim titles) so lexical search can't trivially win.
+
+# --- Issue questions ---
+- question: "Why does my HTTPBearer-protected endpoint return 403 instead of 401 when credentials are missing?"
+  expected: [issue_10177]
+- question: "Can functools.partial be used to create an async dependency?"
+  expected: [issue_10720]
+- question: "jsonable_encoder seems to ignore the pydantic Config defined on my model's properties"
+  expected: [issue_5689]
+- question: "I get duplicated operation ids in my OpenAPI schema when one route serves several HTTP methods"
+  expected: [issue_4740]
+- question: "Is there subdomain routing support similar to what Flask offers?"
+  expected: [issue_5282]
+- question: "The documented way of testing with an in-memory SQLite database doesn't work"
+  expected: [issue_3906]
+- question: "How do shutdown event handlers behave when the app runs under gunicorn?"
+  expected: [issue_5072]
+- question: "After upgrading from 0.98 to 0.99 my OpenAPI schema fails validation because of boolean values"
+  expected: [issue_9780]
+- question: "Setting allow_inf_nan=False on a numeric query field doesn't reject infinity values"
+  expected: [issue_11580]
+- question: "Malformed websocket requests raise a validation error exception instead of failing cleanly"
+  expected: [issue_3702]
+- question: "How can a pydantic RootModel be used as a query parameter?"
+  expected: [issue_11134]
+- question: "How do I use the dependency injection system outside path operations, for example in logging configuration?"
+  expected: [issue_4893]
+- question: "The fastapi dev command gets stuck the first time it runs"
+  expected: [issue_11573]
+- question: "Starlette path convertors are not recognized as path variables in routes"
+  expected: [issue_230]
+
+# --- Error-paste questions (exact tokens live in comments, not titles) ---
+- question: "TypeError: Object of type int64 is not JSON serializable"
+  expected: [issue_15085]
+- question: "RecursionError: maximum recursion depth exceeded while returning a SQLAlchemy model from a route"
+  expected: [issue_2972, issue_982]
+
+# --- Code questions ---
+- question: "Where is the OAuth2 password bearer security scheme class implemented?"
+  expected: ["fastapi/security/oauth2.py#L433-L441", "fastapi/security/oauth2.py#L442-L497"]
+- question: "Which function converts arbitrary objects into JSON-compatible data structures?"
+  expected: ["fastapi/encoders.py#L129-L192", "fastapi/encoders.py#L193-L242", "fastapi/encoders.py#L243-L300", "fastapi/encoders.py#L301-L353", "fastapi/encoders.py#L354-L364"]
+- question: "Where is the HTTPException class defined?"
+  expected: ["fastapi/exceptions.py#L17-L37", "fastapi/exceptions.py#L38-L44"]
+- question: "Where does FastAPI implement running background tasks after a response is returned?"
+  expected: ["fastapi/background.py#L1-L61"]
+- question: "Where is the API key header authentication scheme implemented?"
+  expected: ["fastapi/security/api_key.py#L147-L173"]
+- question: "Which class represents an uploaded file received in a request?"
+  expected: ["fastapi/datastructures.py#L21-L44"]
