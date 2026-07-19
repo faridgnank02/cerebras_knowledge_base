@@ -47,6 +47,14 @@ def init_db(conn: psycopg.Connection, dims: int) -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS idf_stats (
+            token     TEXT PRIMARY KEY,
+            doc_freq  INT NOT NULL
+        )
+        """
+    )
 
 
 def upsert_rows(conn: psycopg.Connection, rows: list[Row]) -> int:
