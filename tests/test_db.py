@@ -42,3 +42,28 @@ def test_watermark_roundtrip(clean_db):
     assert get_watermark(clean_db, "github_issues") == "2026-01-02T00:00:00Z"
     set_watermark(clean_db, "github_issues", "2026-02-01T00:00:00Z")
     assert get_watermark(clean_db, "github_issues") == "2026-02-01T00:00:00Z"
+
+
+from knowbase.db import delete_stale_rows
+
+
+def _row(sid, source="github_code"):
+    from knowbase.connectors.base import Row
+
+    return Row(source=source, source_id=sid, document=f"doc {sid}")
+
+
+def test_delete_stale_rows_removes_unseen_ids(clean_db):
+    from knowbase.db import upsert_rows
+
+    upsert_rows(clean_db, [_row("a#f"), _row("a#g"), _row("b#h")])
+    upsert_rows(clean_db, [_row("issue_1", source="github_issue")])
+    deleted = delete_stale_rows(clean_db, "github_code", ["a#f", "b#h"])
+    assert deleted == 1
+    ids = {
+        r[0]
+        for r in clean_db.execute(
+            "SELECT source_id FROM embeddings ORDER BY source_id"
+        ).fetchall()
+    }
+    assert ids == {"a#f", "b#h", "issue_1"}  # other sources untouched
