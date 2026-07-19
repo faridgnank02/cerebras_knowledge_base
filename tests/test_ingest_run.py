@@ -79,6 +79,22 @@ def test_sweep_logs_deleted_row_count(clean_db, caplog):
     assert any("1" in m and "fake" in m for m in messages)
 
 
+def make_child(i, parent):
+    return Row(
+        source="fake", source_id=f"{parent}#burst_{i}", document=f"burst {i}",
+        metadata={"parent": parent},
+    )
+
+
+def test_run_ingest_removes_stale_burst_rows_on_reingest(clean_db):
+    first = FakeConnector([make_row(1), make_child(1, "r1"), make_child(2, "r1")])
+    run_ingest(clean_db, first, FakeEmbedder())
+    second = FakeConnector([make_row(1), make_child(1, "r1")], wm="wm-2")
+    run_ingest(clean_db, second, FakeEmbedder())
+    ids = {r[0] for r in clean_db.execute("SELECT source_id FROM embeddings").fetchall()}
+    assert ids == {"r1", "r1#burst_1"}
+
+
 def test_run_ingest_never_sweeps_incremental_connectors(clean_db):
     run_ingest(clean_db, FakeConnector([make_row(1), make_row(2)]), FakeEmbedder())
     run_ingest(clean_db, FakeConnector([make_row(3)], wm="wm-2"), FakeEmbedder())
