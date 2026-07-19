@@ -6,6 +6,7 @@ from typing import Iterator
 import httpx
 
 from knowbase.connectors.base import Row
+from knowbase.ingest.bursts import split_bursts
 
 
 def _login(obj: dict) -> str:
@@ -33,11 +34,15 @@ class GitHubIssuesConnector:
         now=time.time,
         distiller=None,
         distill_cache: dict[str, tuple[str, str]] | None = None,
+        burst_scorer=None,
+        min_burst_score: int = 1,
     ):
         self.repo = repo
         self.max_issues = max_issues
         self.distiller = distiller
         self.distill_cache = distill_cache or {}
+        self.burst_scorer = burst_scorer
+        self.min_burst_score = min_burst_score
         self._max_updated: str | None = None
         self._sleep = sleep
         self._now = now
@@ -84,7 +89,7 @@ class GitHubIssuesConnector:
                     continue
                 if count >= self.max_issues:
                     break
-                yield self._to_row(issue)
+                yield from self._to_rows(issue)
                 count += 1
             page += 1
 
@@ -114,7 +119,7 @@ class GitHubIssuesConnector:
                 page += 1
         return comments
 
-    def _to_row(self, issue: dict) -> Row:
+    def _to_rows(self, issue: dict) -> Iterator[Row]:
         comments = self._fetch_comments(issue)
         thread = format_thread(issue, comments)
         sid = f"issue_{issue['number']}"
@@ -123,6 +128,8 @@ class GitHubIssuesConnector:
         updated = issue["updated_at"]
         if self._max_updated is None or updated > self._max_updated:
             self._max_updated = updated
+        created_at = datetime.fromisoformat(issue["created_at"])
+        updated_at = datetime.fromisoformat(updated)
         metadata = {
             "url": issue["html_url"],
             "state": issue["state"],
@@ -135,15 +142,45 @@ class GitHubIssuesConnector:
         }
         if distilled and self.distiller is not None:
             metadata["distill_model"] = self.distiller.model
-        return Row(
+        yield Row(
             source="github_issue",
             source_id=sid,
             document=document,
             raw_content=thread,
             metadata=metadata,
-            created_at=datetime.fromisoformat(issue["created_at"]),
-            updated_at=datetime.fromisoformat(updated),
+            created_at=created_at,
+            updated_at=updated_at,
         )
+        yield from self._burst_rows(issue, sid, comments, created_at, updated_at)
+
+    def _burst_rows(
+        self, issue: dict, sid: str, comments: list[dict], created_at, updated_at
+    ) -> Iterator[Row]:
+        if self.burst_scorer is None:
+            return
+        bursts = split_bursts(comments)
+        if {b.author for b in bursts} <= {_login(issue)}:
+            return
+        n = 0
+        for burst in bursts:
+            if self.burst_scorer(burst) < self.min_burst_score:
+                continue
+            n += 1
+            yield Row(
+                source="github_issue",
+                source_id=f"{sid}#burst_{n}",
+                document=f"# {issue['title']}\n\n{burst.text}",
+                raw_content=None,
+                metadata={
+                    "parent": sid,
+                    "kind": "burst",
+                    "url": issue["html_url"],
+                    "author": burst.author,
+                    "reactions": burst.reactions,
+                },
+                created_at=created_at,
+                updated_at=updated_at,
+            )
 
     def _document(self, title: str, thread: str, sid: str, raw_sha: str) -> tuple[str, bool]:
         cached = self.distill_cache.get(sid)
