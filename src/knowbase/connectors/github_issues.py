@@ -1,3 +1,4 @@
+import hashlib
 import time
 from datetime import datetime
 from typing import Iterator
@@ -30,9 +31,13 @@ class GitHubIssuesConnector:
         client: httpx.Client | None = None,
         sleep=time.sleep,
         now=time.time,
+        distiller=None,
+        distill_cache: dict[str, tuple[str, str]] | None = None,
     ):
         self.repo = repo
         self.max_issues = max_issues
+        self.distiller = distiller
+        self.distill_cache = distill_cache or {}
         self._max_updated: str | None = None
         self._sleep = sleep
         self._now = now
@@ -112,22 +117,40 @@ class GitHubIssuesConnector:
     def _to_row(self, issue: dict) -> Row:
         comments = self._fetch_comments(issue)
         thread = format_thread(issue, comments)
+        sid = f"issue_{issue['number']}"
+        raw_sha = hashlib.sha256(thread.encode()).hexdigest()
+        document, distilled = self._document(issue["title"], thread, sid, raw_sha)
         updated = issue["updated_at"]
         if self._max_updated is None or updated > self._max_updated:
             self._max_updated = updated
+        metadata = {
+            "url": issue["html_url"],
+            "state": issue["state"],
+            "labels": [l["name"] for l in issue["labels"]],
+            "author": _login(issue),
+            "reactions": issue.get("reactions", {}).get("total_count", 0),
+            "comment_authors": [c["author"] for c in comments],
+            "distilled": distilled,
+            "raw_sha": raw_sha,
+        }
+        if distilled and self.distiller is not None:
+            metadata["distill_model"] = self.distiller.model
         return Row(
             source="github_issue",
-            source_id=f"issue_{issue['number']}",
-            document=thread,
+            source_id=sid,
+            document=document,
             raw_content=thread,
-            metadata={
-                "url": issue["html_url"],
-                "state": issue["state"],
-                "labels": [l["name"] for l in issue["labels"]],
-                "author": _login(issue),
-                "reactions": issue.get("reactions", {}).get("total_count", 0),
-                "comment_authors": [c["author"] for c in comments],
-            },
+            metadata=metadata,
             created_at=datetime.fromisoformat(issue["created_at"]),
             updated_at=datetime.fromisoformat(updated),
         )
+
+    def _document(self, title: str, thread: str, sid: str, raw_sha: str) -> tuple[str, bool]:
+        cached = self.distill_cache.get(sid)
+        if cached and cached[0] == raw_sha:
+            return cached[1], True
+        if self.distiller is not None:
+            rendered = self.distiller.distill_document(title, thread)
+            if rendered is not None:
+                return rendered, True
+        return thread, False
