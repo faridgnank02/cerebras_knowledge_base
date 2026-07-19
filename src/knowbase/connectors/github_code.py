@@ -41,17 +41,24 @@ class GitHubCodeConnector:
                 rel = path.relative_to(self.repo_path)
                 if self.exclude_dirs.intersection(rel.parts):
                     continue
+                counts: dict[str, int] = {}
                 for chunk in chunk_python(path.read_text(errors="replace"), self.max_chars):
+                    symbol = chunk.symbol or "module"
+                    counts[symbol] = counts.get(symbol, 0) + 1
+                    n = counts[symbol]
+                    sid = f"{rel}#{symbol}" if n == 1 else f"{rel}#{symbol}@{n}"
                     prefix = f"{rel} {chunk.symbol}" if chunk.symbol else str(rel)
                     yield Row(
                         source="github_code",
-                        source_id=f"{rel}#L{chunk.start_line}-L{chunk.end_line}",
+                        source_id=sid,
                         document=f"{prefix}\n{chunk.text}",
                         raw_content=chunk.text,
                         metadata={
                             "path": str(rel),
                             "symbol": chunk.symbol,
                             "commit": head,
+                            "start_line": chunk.start_line,
+                            "end_line": chunk.end_line,
                         },
                     )
 
