@@ -11,6 +11,7 @@ def refresh_idf(conn: psycopg.Connection) -> int:
         SELECT word, ndoc FROM ts_stat($$
             SELECT to_tsvector('english', coalesce(raw_content, '') || ' ' || document)
             FROM embeddings
+            WHERE metadata->>'parent' IS NULL
         $$)
         """
     )
@@ -18,7 +19,9 @@ def refresh_idf(conn: psycopg.Connection) -> int:
 
 
 def load_idf(conn: psycopg.Connection) -> dict[str, float]:
-    n = conn.execute("SELECT count(*) FROM embeddings").fetchone()[0]
+    n = conn.execute(
+        "SELECT count(*) FROM embeddings WHERE metadata->>'parent' IS NULL"
+    ).fetchone()[0]
     rows = conn.execute("SELECT token, doc_freq FROM idf_stats").fetchall()
     if not rows or n == 0:
         return {}
