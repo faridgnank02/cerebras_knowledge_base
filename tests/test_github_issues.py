@@ -1,3 +1,5 @@
+import hashlib
+
 import pytest
 import httpx
 
@@ -217,6 +219,74 @@ def test_comment_reactions_are_collected():
         {"author": "owen", "body": "fix", "reactions": 4},
         {"author": "pat", "body": "thanks", "reactions": 0},
     ]
+
+
+class FakeDistiller:
+    model = "test-model"
+
+    def __init__(self, result="Question: distilled"):
+        self.result = result
+        self.calls = 0
+
+    def distill_document(self, title, thread):
+        self.calls += 1
+        return self.result
+
+
+def _issue_conn(**kw):
+    return GitHubIssuesConnector(
+        "fastapi/fastapi", token=None, max_issues=10,
+        client=make_client({1: [ISSUE]}), **kw,
+    )
+
+
+def test_distilled_document_replaces_raw_but_raw_content_stays():
+    conn = _issue_conn(distiller=FakeDistiller())
+    row = next(conn.fetch(None))
+    assert row.document == "Question: distilled"
+    assert "CKPT_PREFETCH=4" in row.raw_content
+    assert row.metadata["distilled"] is True
+    assert row.metadata["distill_model"] == "test-model"
+    assert row.metadata["raw_sha"] == hashlib.sha256(row.raw_content.encode()).hexdigest()
+
+
+def test_distill_failure_falls_back_to_raw():
+    conn = _issue_conn(distiller=FakeDistiller(result=None))
+    row = next(conn.fetch(None))
+    assert row.document == row.raw_content
+    assert row.metadata["distilled"] is False
+    assert "distill_model" not in row.metadata
+
+
+def test_no_distiller_means_raw_document():
+    conn = _issue_conn()
+    row = next(conn.fetch(None))
+    assert row.document == row.raw_content
+    assert row.metadata["distilled"] is False
+
+
+def test_cache_hit_skips_llm_call():
+    distiller = FakeDistiller()
+    probe = _issue_conn()
+    raw = next(probe.fetch(None)).raw_content
+    sha = hashlib.sha256(raw.encode()).hexdigest()
+    conn = _issue_conn(
+        distiller=distiller, distill_cache={"issue_42": (sha, "cached doc")}
+    )
+    row = next(conn.fetch(None))
+    assert row.document == "cached doc"
+    assert row.metadata["distilled"] is True
+    assert distiller.calls == 0
+
+
+def test_cache_miss_on_changed_raw_calls_llm():
+    distiller = FakeDistiller()
+    conn = _issue_conn(
+        distiller=distiller, distill_cache={"issue_42": ("stale-sha", "cached doc")}
+    )
+    row = next(conn.fetch(None))
+    assert row.document == "Question: distilled"
+    assert distiller.calls == 1
 
 
 def test_comments_paginate_past_100():
