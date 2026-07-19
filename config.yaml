@@ -14,3 +14,11 @@ db:
 search:
   decay_tau_days: 180
   decay_epsilon: 0.00005
+llm:
+  base_url: https://api.cerebras.ai/v1
+  model: gpt-oss-120b
+  max_input_chars: 60000
+bursts:
+  idf_threshold: 4.0
+  min_chars: 200
+  min_score: 1
