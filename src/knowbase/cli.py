@@ -61,12 +61,15 @@ def _build_connectors(cfg: Config, source: str) -> list:
 @app.command()
 def ingest(
     source: str = typer.Option("all", help="github_issues | github_code | all"),
+    full: bool = typer.Option(False, "--full", help="Reset watermarks and refetch everything"),
     config: Path = typer.Option(Path("config.yaml")),
 ):
     cfg = load_config(config)
     conn = _connect(cfg)
     embedder = Embedder(cfg.embedding_model)
     for connector in _build_connectors(cfg, source):
+        if full:
+            db_mod.clear_watermark(conn, connector.name)
         typer.echo(f"Ingesting {connector.name}...")
         n = run_ingest(conn, connector, embedder)
         typer.echo(f"  {n} rows written")
