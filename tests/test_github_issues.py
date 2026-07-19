@@ -128,3 +128,68 @@ def test_null_user_becomes_ghost():
     assert rows[0].metadata["author"] == "ghost"
     assert rows[0].metadata["comment_authors"] == ["ghost"]
     assert "--- ghost ---" in rows[0].document
+
+
+def _client(handler):
+    return httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="https://api.github.com"
+    )
+
+
+def test_primary_rate_limit_sleeps_until_reset():
+    calls = {"n": 0}
+    slept = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(
+                403,
+                headers={"x-ratelimit-remaining": "0", "x-ratelimit-reset": "1030"},
+                json={},
+            )
+        return httpx.Response(200, json=[])
+
+    conn = GitHubIssuesConnector(
+        "fastapi/fastapi", token=None, max_issues=10, client=_client(handler),
+        sleep=slept.append, now=lambda: 1000.0,
+    )
+    assert list(conn.fetch(None)) == []
+    assert calls["n"] == 2
+    assert slept == [31]  # reset(1030) - now(1000) + 1
+
+
+def test_plain_403_raises_immediately():
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(403, json={"message": "forbidden"})
+
+    conn = GitHubIssuesConnector(
+        "fastapi/fastapi", token=None, max_issues=10, client=_client(handler)
+    )
+    with pytest.raises(httpx.HTTPStatusError):
+        list(conn.fetch(None))
+    assert calls["n"] == 1  # no retries without rate-limit signal
+
+
+def test_primary_rate_limit_gives_up_after_cap():
+    calls = {"n": 0}
+    slept = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(
+            403,
+            headers={"x-ratelimit-remaining": "0", "x-ratelimit-reset": "0"},
+            json={},
+        )
+
+    conn = GitHubIssuesConnector(
+        "fastapi/fastapi", token=None, max_issues=10, client=_client(handler),
+        sleep=slept.append, now=lambda: 0.0,
+    )
+    with pytest.raises(httpx.HTTPStatusError):
+        list(conn.fetch(None))
+    assert calls["n"] == 6  # initial attempt + 5 retries
