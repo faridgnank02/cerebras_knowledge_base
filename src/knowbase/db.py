@@ -96,6 +96,10 @@ def set_watermark(conn: psycopg.Connection, connector: str, watermark: str) -> N
     )
 
 
+def clear_watermark(conn: psycopg.Connection, connector: str) -> None:
+    conn.execute("DELETE FROM sync_state WHERE connector = %s", (connector,))
+
+
 def delete_stale_rows(conn: psycopg.Connection, source: str, keep_ids: list[str]) -> int:
     cur = conn.execute(
         "DELETE FROM embeddings WHERE source = %s AND NOT (source_id = ANY(%s))",

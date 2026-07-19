@@ -67,3 +67,12 @@ def test_delete_stale_rows_removes_unseen_ids(clean_db):
         ).fetchall()
     }
     assert ids == {"a#f", "b#h", "issue_1"}  # other sources untouched
+
+
+def test_clear_watermark(clean_db):
+    from knowbase.db import clear_watermark, get_watermark, set_watermark
+
+    set_watermark(clean_db, "github_issues", "2026-01-01T00:00:00Z")
+    clear_watermark(clean_db, "github_issues")
+    assert get_watermark(clean_db, "github_issues") is None
+    clear_watermark(clean_db, "never_seen")  # no-op, must not raise
