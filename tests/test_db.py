@@ -5,6 +5,7 @@ import numpy as np
 from knowbase.connectors.base import Row
 from knowbase.db import (
     clear_watermark,
+    delete_stale_children,
     delete_stale_rows,
     get_watermark,
     set_watermark,
@@ -66,6 +67,26 @@ def test_delete_stale_rows_removes_unseen_ids(clean_db):
         ).fetchall()
     }
     assert ids == {"a#f", "b#h", "issue_1"}  # other sources untouched
+
+
+def _child(sid, parent, source="github_issue"):
+    return Row(
+        source=source, source_id=sid, document=f"burst of {parent}",
+        metadata={"parent": parent, "kind": "burst"},
+    )
+
+
+def test_delete_stale_children_removes_unseen_bursts(clean_db):
+    upsert_rows(clean_db, [_row("issue_1", source="github_issue")])
+    upsert_rows(clean_db, [_child("issue_1#burst_1", "issue_1"),
+                           _child("issue_1#burst_2", "issue_1"),
+                           _child("issue_9#burst_1", "issue_9")])
+    deleted = delete_stale_children(
+        clean_db, "github_issue", ["issue_1", "issue_1#burst_1"]
+    )
+    assert deleted == 1  # burst_2 gone; issue_9's burst untouched (parent not seen)
+    ids = {r[0] for r in clean_db.execute("SELECT source_id FROM embeddings").fetchall()}
+    assert ids == {"issue_1", "issue_1#burst_1", "issue_9#burst_1"}
 
 
 def test_clear_watermark(clean_db):

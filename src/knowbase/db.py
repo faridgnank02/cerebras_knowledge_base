@@ -108,6 +108,18 @@ def clear_watermark(conn: psycopg.Connection, connector: str) -> None:
     conn.execute("DELETE FROM sync_state WHERE connector = %s", (connector,))
 
 
+def delete_stale_children(conn: psycopg.Connection, source: str, seen_ids: list[str]) -> int:
+    cur = conn.execute(
+        """
+        DELETE FROM embeddings
+        WHERE source = %s AND metadata->>'parent' = ANY(%s)
+          AND NOT (source_id = ANY(%s))
+        """,
+        (source, seen_ids, seen_ids),
+    )
+    return cur.rowcount
+
+
 def delete_stale_rows(conn: psycopg.Connection, source: str, keep_ids: list[str]) -> int:
     cur = conn.execute(
         "DELETE FROM embeddings WHERE source = %s AND NOT (source_id = ANY(%s))",
