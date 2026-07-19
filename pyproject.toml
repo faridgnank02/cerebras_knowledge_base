@@ -12,11 +12,14 @@ dependencies = [
     "pyyaml>=6.0",
     "openai>=2.46.0",
     "mcp>=1.2",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
 ]
 
 [project.scripts]
 kb = "knowbase.cli:main"
 kb-mcp = "knowbase.mcp_server:main"
+kb-web = "knowbase.web:main"
 
 [dependency-groups]
 dev = ["pytest>=8.0"]
