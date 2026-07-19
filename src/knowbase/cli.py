@@ -14,6 +14,9 @@ from knowbase.ingest.distill import Distiller
 from knowbase.ingest.embedder import Embedder
 from knowbase.ingest.idf import load_idf, query_lexemes, refresh_idf
 from knowbase.ingest.run import run_ingest
+from knowbase.pipeline.ask import run_ask
+from knowbase.pipeline.planner import Planner
+from knowbase.pipeline.synthesize import Synthesizer
 from knowbase.retrieval.fts import fts_search
 from knowbase.retrieval.fusion import canonicalize, hybrid_search
 from knowbase.retrieval.rerank import Reranker
@@ -175,6 +178,45 @@ def search(
         first_line = _first_line(r.document)
         url = r.metadata.get("url", "")
         typer.echo(f"{rank:2}. [{r.score:.3f}] {r.source_id}  {first_line}  {url}")
+
+
+@app.command()
+def ask(
+    question: str,
+    limit: int = typer.Option(8, help="Evidence rows fed to synthesis"),
+    no_rerank: bool = typer.Option(
+        False, "--no-rerank", help="Skip the LLM rerank step"
+    ),
+    config: Path = typer.Option(Path("config.yaml")),
+):
+    cfg = load_config(config)
+    api_key = _require_key()
+    planner = Planner(cfg.llm_base_url, api_key, cfg.llm_model)
+    reranker = None if no_rerank else Reranker(cfg.llm_base_url, api_key, cfg.llm_model)
+    synthesizer = Synthesizer(cfg.llm_base_url, api_key, cfg.llm_model)
+    conn = _connect(cfg)
+    embedder = Embedder(cfg.embedding_model)
+    clone_path = cfg.clone_path if cfg.clone_path.exists() else None
+    result = run_ask(
+        conn, embedder, cfg, clone_path, question,
+        planner, reranker, synthesizer, limit=limit,
+    )
+    typer.echo(f"tools: {', '.join(result.tools)}")
+    typer.echo("")
+    if result.answer:
+        typer.echo(result.answer)
+    else:
+        typer.echo("Synthesis unavailable; showing raw evidence.", err=True)
+    if result.evidence:
+        typer.echo("")
+        typer.echo("Sources:")
+        for e in result.evidence:
+            typer.echo(f"[{e.n}] {e.source_id}  {e.url}")
+    if result.people:
+        typer.echo("")
+        typer.echo("People:")
+        for p in result.people:
+            typer.echo(f"  {p.author} ({p.score:.2f})  via {', '.join(p.issues)}")
 
 
 @app.command()
