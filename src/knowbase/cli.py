@@ -95,10 +95,10 @@ def search(
 @app.command()
 def eval(
     questions: Path = typer.Option(Path("evals/questions.yaml")),
-    k: int = typer.Option(10),
     config: Path = typer.Option(Path("config.yaml")),
 ):
     from knowbase.evals import evaluate, load_questions
+    from knowbase.retrieval.vector import vector_search
 
     qs = load_questions(questions)
     if not qs:
@@ -107,8 +107,10 @@ def eval(
     cfg = load_config(config)
     conn = _connect(cfg)
     embedder = Embedder(cfg.embedding_model)
-    report = evaluate(conn, embedder, qs, k=k)
-    typer.echo(f"recall@{k}: {report.recall_at_k:.2f} ({report.hits}/{report.total})")
+    report = evaluate(lambda q, k: vector_search(conn, embedder, q, limit=k), qs)
+    for k in sorted(report.recall):
+        typer.echo(f"recall@{k}: {report.recall[k]:.2f} ({report.hits[k]}/{report.total})")
+    typer.echo(f"MRR: {report.mrr:.2f}")
     for miss in report.misses:
         typer.echo(f"  MISS: {miss}")
 

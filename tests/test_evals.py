@@ -1,31 +1,22 @@
 import pytest
 
-from knowbase.connectors.base import Row
-from knowbase.db import upsert_rows
-from knowbase.evals import evaluate, load_questions
-from knowbase.ingest.embedder import Embedder
-
-TEST_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+from knowbase.evals import EvalReport, evaluate, load_questions
+from knowbase.retrieval.vector import SearchResult
 
 
-@pytest.fixture(scope="session")
-def embedder():
-    return Embedder(TEST_MODEL)
+def _result(sid):
+    return SearchResult(
+        id=0, source="github_issue", source_id=sid, document="d", metadata={}, score=1.0
+    )
 
 
-def seed(conn, embedder):
-    docs = {
-        "issue_1": "How to return a custom 404 not found response",
-        "issue_2": "Websocket closes unexpectedly under load",
-    }
-    rows = [
-        Row(source="github_issue", source_id=sid, document=doc)
-        for sid, doc in docs.items()
-    ]
-    vecs = embedder.encode([r.document for r in rows])
-    for r, v in zip(rows, vecs):
-        r.embedding = v
-    upsert_rows(conn, rows)
+def _fake_search(answers):
+    """answers: {query: [source_id, ...]} in rank order."""
+
+    def search(query, k):
+        return [_result(s) for s in answers.get(query, [])][:k]
+
+    return search
 
 
 def test_load_questions(tmp_path):
@@ -39,14 +30,24 @@ def test_load_questions(tmp_path):
     assert len(qs) == 2
 
 
-def test_evaluate_reports_recall(clean_db, embedder):
-    seed(clean_db, embedder)
+def test_evaluate_reports_recall_at_ks_and_mrr():
     questions = [
-        {"question": "returning a 404 error page", "expected": ["issue_1"]},
-        {"question": "kubernetes autoscaling policy", "expected": ["issue_99"]},
+        {"question": "q1", "expected": ["a"]},   # rank 1
+        {"question": "q2", "expected": ["b"]},   # rank 3
+        {"question": "q3", "expected": ["z"]},   # miss
     ]
-    report = evaluate(clean_db, embedder, questions, k=2)
-    assert report.total == 2
-    assert report.hits == 1
-    assert report.recall_at_k == 0.5
-    assert report.misses == ["kubernetes autoscaling policy"]
+    search = _fake_search(
+        {"q1": ["a", "x", "y"], "q2": ["x", "y", "b"], "q3": ["x", "y", "w"]}
+    )
+    report = evaluate(search, questions, ks=(1, 3, 10))
+    assert report.total == 3
+    assert report.hits == {1: 1, 3: 2, 10: 2}
+    assert report.recall == {1: 1 / 3, 3: 2 / 3, 10: 2 / 3}
+    assert report.mrr == pytest.approx((1 + 1 / 3 + 0) / 3)
+    assert report.misses == ["q3"]
+
+
+def test_evaluate_ranks_first_expected_hit():
+    questions = [{"question": "q", "expected": ["a", "b"]}]
+    report = evaluate(_fake_search({"q": ["b", "a"]}), questions, ks=(1,))
+    assert report.mrr == 1.0  # 'b' at rank 1 counts, even though 'a' is rank 2
