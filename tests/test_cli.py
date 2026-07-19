@@ -62,6 +62,36 @@ def test_ingest_no_distill_skips_key_check(tmp_path, monkeypatch):
     assert "CEREBRAS_API_KEY" not in result.output
 
 
+def test_search_rerank_without_key_fails_fast(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from knowbase.cli import app
+
+    monkeypatch.delenv("CEREBRAS_API_KEY", raising=False)
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(MINIMAL_YAML)
+    result = CliRunner().invoke(
+        app, ["search", "q", "--rerank", "--config", str(cfg)]
+    )
+    assert result.exit_code != 0
+    assert "CEREBRAS_API_KEY" in result.output
+
+
+def test_rerank_requires_hybrid_mode(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from knowbase.cli import app
+
+    monkeypatch.setenv("CEREBRAS_API_KEY", "k")
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(MINIMAL_YAML)
+    result = CliRunner().invoke(
+        app, ["search", "q", "--mode", "vector", "--rerank", "--config", str(cfg)]
+    )
+    assert result.exit_code != 0
+    assert "hybrid" in result.output
+
+
 def test_searcher_single_leg_modes_canonicalize(monkeypatch):
     import knowbase.cli as cli
     from knowbase.retrieval.vector import SearchResult

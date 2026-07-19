@@ -16,6 +16,7 @@ from knowbase.ingest.idf import load_idf, query_lexemes, refresh_idf
 from knowbase.ingest.run import run_ingest
 from knowbase.retrieval.fts import fts_search
 from knowbase.retrieval.fusion import canonicalize, hybrid_search
+from knowbase.retrieval.rerank import Reranker
 from knowbase.retrieval.vector import vector_search
 
 app = typer.Typer(no_args_is_help=True)
@@ -33,7 +34,7 @@ def _connect(cfg: Config):
     return conn
 
 
-def _searcher(mode: str, conn, embedder, cfg):
+def _searcher(mode: str, conn, embedder, cfg, reranker=None):
     if mode == "vector":
         return lambda q, k: canonicalize(
             vector_search(conn, embedder, q, limit=2 * k), k
@@ -44,8 +45,23 @@ def _searcher(mode: str, conn, embedder, cfg):
         return lambda q, k: hybrid_search(
             conn, embedder, q, limit=k,
             tau_days=cfg.decay_tau_days, epsilon=cfg.decay_epsilon,
+            reranker=reranker,
         )
     raise typer.BadParameter(f"unknown mode: {mode} (vector | fts | hybrid)")
+
+
+def _require_key() -> str:
+    api_key = os.environ.get("CEREBRAS_API_KEY")
+    if not api_key:
+        typer.echo("CEREBRAS_API_KEY is not set", err=True)
+        raise typer.Exit(1)
+    return api_key
+
+
+def _build_reranker(cfg: Config, mode: str) -> Reranker:
+    if mode != "hybrid":
+        raise typer.BadParameter("--rerank requires --mode hybrid")
+    return Reranker(cfg.llm_base_url, _require_key(), cfg.llm_model)
 
 
 def _ensure_clone(cfg: Config) -> None:
@@ -145,12 +161,16 @@ def search(
         10, help="Results to show; hybrid mode draws from a 20-doc fused pool"
     ),
     mode: str = typer.Option("hybrid", help="hybrid | vector | fts"),
+    rerank: bool = typer.Option(
+        False, "--rerank", help="LLM-rerank the fused pool (needs CEREBRAS_API_KEY)"
+    ),
     config: Path = typer.Option(Path("config.yaml")),
 ):
     cfg = load_config(config)
+    reranker = _build_reranker(cfg, mode) if rerank else None
     conn = _connect(cfg)
     embedder = Embedder(cfg.embedding_model)
-    search_fn = _searcher(mode, conn, embedder, cfg)
+    search_fn = _searcher(mode, conn, embedder, cfg, reranker)
     for rank, r in enumerate(search_fn(query, limit), start=1):
         first_line = _first_line(r.document)
         url = r.metadata.get("url", "")
@@ -161,6 +181,9 @@ def search(
 def eval(
     questions: Path = typer.Option(Path("evals/questions.yaml")),
     mode: str = typer.Option("hybrid", help="hybrid | vector | fts"),
+    rerank: bool = typer.Option(
+        False, "--rerank", help="LLM-rerank the fused pool (needs CEREBRAS_API_KEY)"
+    ),
     config: Path = typer.Option(Path("config.yaml")),
 ):
     qs = load_questions(questions)
@@ -168,10 +191,11 @@ def eval(
         typer.echo("No questions in the eval set yet — see evals/questions.yaml.")
         raise typer.Exit(1)
     cfg = load_config(config)
+    reranker = _build_reranker(cfg, mode) if rerank else None
     conn = _connect(cfg)
     embedder = Embedder(cfg.embedding_model)
-    report = evaluate(_searcher(mode, conn, embedder, cfg), qs)
-    typer.echo(f"mode: {mode}")
+    report = evaluate(_searcher(mode, conn, embedder, cfg, reranker), qs)
+    typer.echo(f"mode: {mode}" + (" +rerank" if rerank else ""))
     for k in sorted(report.recall):
         typer.echo(f"recall@{k}: {report.recall[k]:.2f} ({report.hits[k]}/{report.total})")
     typer.echo(f"MRR: {report.mrr:.2f}")

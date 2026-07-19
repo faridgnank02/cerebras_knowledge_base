@@ -83,3 +83,37 @@ def test_canonicalize_best_rank_wins_and_dedupes():
 def test_canonicalize_honors_limit():
     results = [sr(i, f"issue_{i}") for i in range(5)]
     assert len(canonicalize(results, 3)) == 3
+
+
+class StubReranker:
+    def __init__(self):
+        self.calls = []
+
+    def rerank(self, query, results, keep):
+        self.calls.append((query, list(results), keep))
+        return list(reversed(results))[:keep]
+
+
+def test_hybrid_search_applies_reranker_over_fused_pool(monkeypatch):
+    import knowbase.retrieval.fusion as fusion
+
+    pool = [sr(i, f"issue_{i}", score=1.0 - i / 100) for i in range(1, 31)]
+    monkeypatch.setattr(fusion, "vector_search", lambda *a, **kw: pool)
+    monkeypatch.setattr(fusion, "fts_search", lambda *a, **kw: [])
+    stub = StubReranker()
+    out = fusion.hybrid_search(None, None, "q", limit=5, reranker=stub)
+    (query, passed, keep) = stub.calls[0]
+    assert query == "q"
+    assert len(passed) == fusion.FUSED_POOL  # full decayed 20-doc pool
+    assert keep == 5
+    assert [r.source_id for r in out] == [r.source_id for r in reversed(passed)][:5]
+
+
+def test_hybrid_search_without_reranker_unchanged(monkeypatch):
+    import knowbase.retrieval.fusion as fusion
+
+    pool = [sr(i, f"issue_{i}", score=1.0 - i / 100) for i in range(1, 4)]
+    monkeypatch.setattr(fusion, "vector_search", lambda *a, **kw: pool)
+    monkeypatch.setattr(fusion, "fts_search", lambda *a, **kw: [])
+    out = fusion.hybrid_search(None, None, "q", limit=3)
+    assert [r.source_id for r in out] == ["issue_1", "issue_2", "issue_3"]
