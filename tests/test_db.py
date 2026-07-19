@@ -8,6 +8,7 @@ from knowbase.db import (
     delete_stale_children,
     delete_stale_rows,
     get_watermark,
+    load_distill_cache,
     set_watermark,
     upsert_rows,
 )
@@ -87,6 +88,19 @@ def test_delete_stale_children_removes_unseen_bursts(clean_db):
     assert deleted == 1  # burst_2 gone; issue_9's burst untouched (parent not seen)
     ids = {r[0] for r in clean_db.execute("SELECT source_id FROM embeddings").fetchall()}
     assert ids == {"issue_1", "issue_1#burst_1", "issue_9#burst_1"}
+
+
+def test_load_distill_cache_returns_distilled_rows_for_model(clean_db):
+    good = _row("issue_1", source="github_issue")
+    good.document = "distilled doc"
+    good.metadata = {"distilled": True, "distill_model": "m1", "raw_sha": "abc"}
+    other_model = _row("issue_2", source="github_issue")
+    other_model.metadata = {"distilled": True, "distill_model": "m2", "raw_sha": "def"}
+    fallback = _row("issue_3", source="github_issue")
+    fallback.metadata = {"distilled": False, "raw_sha": "ghi"}
+    upsert_rows(clean_db, [good, other_model, fallback])
+    cache = load_distill_cache(clean_db, "m1")
+    assert cache == {"issue_1": ("abc", "distilled doc")}
 
 
 def test_clear_watermark(clean_db):
