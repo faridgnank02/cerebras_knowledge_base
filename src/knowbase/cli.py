@@ -66,5 +66,22 @@ def ingest(
         typer.echo(f"  {n} rows written")
 
 
+@app.command()
+def search(
+    query: str,
+    limit: int = typer.Option(10),
+    config: Path = typer.Option(Path("config.yaml")),
+):
+    from knowbase.retrieval.vector import vector_search
+
+    cfg = load_config(config)
+    conn = _connect(cfg)
+    embedder = Embedder(cfg.embedding_model)
+    for rank, r in enumerate(vector_search(conn, embedder, query, limit), start=1):
+        first_line = r.document.splitlines()[0][:100]
+        url = r.metadata.get("url", "")
+        typer.echo(f"{rank:2}. [{r.score:.3f}] {r.source_id}  {first_line}  {url}")
+
+
 def main():
     app()
