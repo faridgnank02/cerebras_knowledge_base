@@ -89,5 +89,26 @@ def search(
         typer.echo(f"{rank:2}. [{r.score:.3f}] {r.source_id}  {first_line}  {url}")
 
 
+@app.command()
+def eval(
+    questions: Path = typer.Option(Path("evals/questions.yaml")),
+    k: int = typer.Option(10),
+    config: Path = typer.Option(Path("config.yaml")),
+):
+    from knowbase.evals import evaluate, load_questions
+
+    qs = load_questions(questions)
+    if not qs:
+        typer.echo("No questions in the eval set yet — see evals/questions.yaml.")
+        raise typer.Exit(1)
+    cfg = load_config(config)
+    conn = _connect(cfg)
+    embedder = Embedder(cfg.embedding_model)
+    report = evaluate(conn, embedder, qs, k=k)
+    typer.echo(f"recall@{k}: {report.recall_at_k:.2f} ({report.hits}/{report.total})")
+    for miss in report.misses:
+        typer.echo(f"  MISS: {miss}")
+
+
 def main():
     app()

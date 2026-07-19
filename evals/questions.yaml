@@ -1,0 +1,5 @@
+# Eval questions for knowbase. Format:
+#   - question: natural-language question a user would type
+#     expected: [source_id, ...]   # any hit in top-k counts
+# Authored against the really-ingested corpus in Task 10 — see the plan.
+[]
