@@ -14,6 +14,12 @@ from knowbase.ingest.run import run_ingest
 app = typer.Typer(no_args_is_help=True)
 
 
+def _first_line(text: str, width: int = 100) -> str:
+    """Extract first line of text, truncated to width. Returns empty string if text is empty."""
+    lines = text.splitlines()
+    return lines[0][:width] if lines else ""
+
+
 def _connect(cfg: Config):
     conn = db_mod.connect(cfg.dsn)
     db_mod.init_db(conn, dims=cfg.embedding_dims)
@@ -78,7 +84,7 @@ def search(
     conn = _connect(cfg)
     embedder = Embedder(cfg.embedding_model)
     for rank, r in enumerate(vector_search(conn, embedder, query, limit), start=1):
-        first_line = r.document.splitlines()[0][:100]
+        first_line = _first_line(r.document)
         url = r.metadata.get("url", "")
         typer.echo(f"{rank:2}. [{r.score:.3f}] {r.source_id}  {first_line}  {url}")
 
