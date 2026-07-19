@@ -18,7 +18,9 @@ def fts_search(conn: psycopg.Connection, query: str, limit: int = 10) -> list[Se
             continue
         tsq = "'" + lex.replace("'", "''") + "'"
         cur = conn.execute(
-            f"SELECT id FROM embeddings WHERE {FTS_DOC} @@ %s::tsquery", (tsq,)
+            f"SELECT id FROM embeddings WHERE {FTS_DOC} @@ %s::tsquery"
+            " AND metadata->>'parent' IS NULL",
+            (tsq,),
         )
         for (row_id,) in cur:
             scores[row_id] = scores.get(row_id, 0.0) + weight
