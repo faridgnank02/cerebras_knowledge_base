@@ -195,6 +195,30 @@ def test_primary_rate_limit_gives_up_after_cap():
     assert calls["n"] == 6  # initial attempt + 5 retries
 
 
+def test_comment_reactions_are_collected():
+    comments = [
+        {"user": {"login": "owen"}, "body": "fix", "reactions": {"total_count": 4}},
+        {"user": {"login": "pat"}, "body": "thanks"},  # no reactions key
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/repos/fastapi/fastapi/issues":
+            page = int(request.url.params.get("page", "1"))
+            return httpx.Response(200, json=[{**ISSUE, "comments": 2}] if page == 1 else [])
+        if request.url.path == "/repos/fastapi/fastapi/issues/42/comments":
+            return httpx.Response(200, json=comments)
+        return httpx.Response(404)
+
+    conn = GitHubIssuesConnector(
+        "fastapi/fastapi", token=None, max_issues=10, client=_client(handler)
+    )
+    fetched = conn._fetch_comments({**ISSUE, "comments": 2})
+    assert fetched == [
+        {"author": "owen", "body": "fix", "reactions": 4},
+        {"author": "pat", "body": "thanks", "reactions": 0},
+    ]
+
+
 def test_comments_paginate_past_100():
     page1 = [{"user": {"login": f"u{i}"}, "body": f"c{i}"} for i in range(100)]
     page2 = [{"user": {"login": "last"}, "body": "the fix"}]

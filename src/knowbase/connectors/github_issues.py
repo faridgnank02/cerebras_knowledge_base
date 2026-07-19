@@ -15,7 +15,7 @@ def _login(obj: dict) -> str:
 def format_thread(issue: dict, comments: list[dict]) -> str:
     parts = [f"# {issue['title']}", issue.get("body") or ""]
     for c in comments:
-        parts.append(f"--- {_login(c)} ---\n{c.get('body') or ''}")
+        parts.append(f"--- {c['author']} ---\n{c['body']}")
     return "\n\n".join(p for p in parts if p.strip())
 
 
@@ -86,7 +86,7 @@ class GitHubIssuesConnector:
     def watermark(self) -> str | None:
         return self._max_updated
 
-    def _to_row(self, issue: dict) -> Row:
+    def _fetch_comments(self, issue: dict) -> list[dict]:
         comments: list[dict] = []
         if issue.get("comments", 0) > 0:
             page = 1
@@ -96,10 +96,21 @@ class GitHubIssuesConnector:
                     {"per_page": 100, "page": page},
                 )
                 batch = resp.json()
-                comments.extend(batch)
+                comments.extend(
+                    {
+                        "author": _login(c),
+                        "body": c.get("body") or "",
+                        "reactions": (c.get("reactions") or {}).get("total_count", 0),
+                    }
+                    for c in batch
+                )
                 if len(batch) < 100:
                     break
                 page += 1
+        return comments
+
+    def _to_row(self, issue: dict) -> Row:
+        comments = self._fetch_comments(issue)
         thread = format_thread(issue, comments)
         updated = issue["updated_at"]
         if self._max_updated is None or updated > self._max_updated:
@@ -115,7 +126,7 @@ class GitHubIssuesConnector:
                 "labels": [l["name"] for l in issue["labels"]],
                 "author": _login(issue),
                 "reactions": issue.get("reactions", {}).get("total_count", 0),
-                "comment_authors": [_login(c) for c in comments],
+                "comment_authors": [c["author"] for c in comments],
             },
             created_at=datetime.fromisoformat(issue["created_at"]),
             updated_at=datetime.fromisoformat(updated),
