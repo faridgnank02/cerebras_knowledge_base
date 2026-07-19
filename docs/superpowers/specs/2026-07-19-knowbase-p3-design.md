@@ -1,7 +1,7 @@
 # knowbase P3 — LLM distillation + bursting
 
 **Date:** 2026-07-19
-**Status:** Draft — pending user review
+**Status:** Approved
 **Parent spec:** [2026-07-19-knowbase-design.md](2026-07-19-knowbase-design.md)
 **Baseline:** [docs/blog/p2-results.md](../../blog/p2-results.md) — hybrid recall@1 = 0.61,
 recall@3 = 0.65, recall@10 = 0.90, MRR = 0.67 (31 questions); vector-only still ahead at
