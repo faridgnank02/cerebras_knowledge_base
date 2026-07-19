@@ -24,3 +24,12 @@ def test_similar_texts_are_closer(embedder):
     sim_related = float(vecs[0] @ vecs[1])
     sim_unrelated = float(vecs[0] @ vecs[2])
     assert sim_related > sim_unrelated
+
+
+def test_max_seq_length_is_capped(embedder):
+    assert embedder.model.max_seq_length == 1024
+
+
+def test_encode_handles_more_texts_than_batch_size(embedder):
+    vecs = embedder.encode([f"document number {i}" for i in range(20)])
+    assert vecs.shape == (20, 384)
