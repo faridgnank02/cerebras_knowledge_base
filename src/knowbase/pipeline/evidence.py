@@ -15,7 +15,7 @@ class Evidence:
     updated_at: datetime | None
 
 
-def _url(source: str, metadata: dict) -> str:
+def source_url(source: str, metadata: dict) -> str:
     if source == "github_code":
         path = metadata.get("path", "")
         start, end = metadata.get("start_line"), metadata.get("end_line")
@@ -35,7 +35,7 @@ def build_evidence(expanded: list[Expanded], max_chars: int = 2000) -> list[Evid
         out.append(
             Evidence(
                 n=n, text=text[:max_chars], source=r.source, source_id=r.source_id,
-                url=_url(r.source, r.metadata or {}), score=r.score,
+                url=source_url(r.source, r.metadata or {}), score=r.score,
                 updated_at=r.updated_at,
             )
         )
