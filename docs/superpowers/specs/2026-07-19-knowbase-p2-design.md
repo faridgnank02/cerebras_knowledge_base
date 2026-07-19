@@ -44,10 +44,12 @@ Three strictly ordered workstreams:
   - A symbol split into multiple chunks: `#jsonable_encoder`, `#jsonable_encoder@2`, `#jsonable_encoder@3`, …
   - Symbol-less chunks: `#module`, `#module@2`, …
   - Suffix assignment is by chunk order within the file (deterministic).
-- Re-walk behaviour: for every file in the `git diff --name-only` set (changed **and**
-  deleted), delete all `github_code` rows whose `source_id` starts with `{path}#`,
-  then insert the fresh chunks. Full walks do the same per visited file, plus delete
-  rows for paths no longer present.
+- Re-walk behaviour: the code connector already performs a **full walk** whenever
+  HEAD differs from the watermark (it has no per-file diffing). So the fix is a
+  post-walk sweep: after a walk that yielded rows, delete every row of that source
+  whose `source_id` was not seen in the walk. Equivalent outcome to per-file
+  delete-then-insert (renamed/removed symbols and deleted files all disappear),
+  opt-in per connector so the incremental issues connector is never swept.
 - One-time migration: the 6 code-answer eval questions move from line-range ids to
   symbol ids.
 
