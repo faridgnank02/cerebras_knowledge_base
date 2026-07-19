@@ -20,6 +20,8 @@ def refresh_idf(conn: psycopg.Connection) -> int:
 def load_idf(conn: psycopg.Connection) -> dict[str, float]:
     n = conn.execute("SELECT count(*) FROM embeddings").fetchone()[0]
     rows = conn.execute("SELECT token, doc_freq FROM idf_stats").fetchall()
+    if not rows or n == 0:
+        return {}
     return {t: max(0.0, math.log(n / (1 + df))) for t, df in rows}
 
 

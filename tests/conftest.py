@@ -28,5 +28,5 @@ def db():
 
 @pytest.fixture()
 def clean_db(db):
-    db.execute("TRUNCATE embeddings, sync_state")
+    db.execute("TRUNCATE embeddings, sync_state, idf_stats")
     return db
