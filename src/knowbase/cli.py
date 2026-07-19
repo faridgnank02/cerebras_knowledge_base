@@ -64,6 +64,8 @@ def ingest(
     full: bool = typer.Option(False, "--full", help="Reset watermarks and refetch everything"),
     config: Path = typer.Option(Path("config.yaml")),
 ):
+    from knowbase.ingest.idf import refresh_idf
+
     cfg = load_config(config)
     conn = _connect(cfg)
     embedder = Embedder(cfg.embedding_model)
@@ -73,6 +75,8 @@ def ingest(
         typer.echo(f"Ingesting {connector.name}...")
         n = run_ingest(conn, connector, embedder)
         typer.echo(f"  {n} rows written")
+    n_tokens = refresh_idf(conn)
+    typer.echo(f"idf_stats refreshed: {n_tokens} tokens")
 
 
 @app.command()
