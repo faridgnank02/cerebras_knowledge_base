@@ -1,4 +1,7 @@
-from knowbase.cli import _first_line
+import pytest
+import typer
+
+from knowbase.cli import _first_line, _searcher
 
 
 def test_first_line_truncates():
@@ -11,3 +14,8 @@ def test_first_line_takes_first_line_only():
 
 def test_first_line_empty_string():
     assert _first_line("") == ""
+
+
+def test_searcher_rejects_unknown_mode():
+    with pytest.raises(typer.BadParameter):
+        _searcher("cosmic", conn=None, embedder=None, cfg=None)
