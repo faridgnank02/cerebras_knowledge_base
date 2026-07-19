@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from knowbase.retrieval.fusion import apply_decay, cap_per_file, rrf_fuse
+from knowbase.retrieval.fusion import apply_decay, canonicalize, cap_per_file, rrf_fuse
 from knowbase.retrieval.vector import SearchResult
 
 
@@ -53,3 +53,33 @@ def test_decay_handles_missing_updated_at():
     now = datetime(2026, 7, 19, tzinfo=timezone.utc)
     results = apply_decay([_r(1, score=0.5), _r(2, score=0.4, updated_at=now)], now=now)
     assert [r.id for r in results] == [1, 2]
+
+
+def sr(id, source_id, metadata=None, score=1.0):
+    return SearchResult(
+        id=id, source="github_issue", source_id=source_id,
+        document="d", metadata=metadata or {}, score=score,
+    )
+
+
+def test_canonicalize_maps_burst_to_parent():
+    results = [sr(1, "issue_7#burst_2", {"parent": "issue_7"}), sr(2, "issue_9")]
+    out = canonicalize(results)
+    assert [r.source_id for r in out] == ["issue_7", "issue_9"]
+    assert out[0].document == "d"  # winning row's fields kept
+
+
+def test_canonicalize_best_rank_wins_and_dedupes():
+    results = [
+        sr(1, "issue_7#burst_1", {"parent": "issue_7"}, score=0.9),
+        sr(2, "issue_7", score=0.5),
+        sr(3, "issue_8", score=0.4),
+    ]
+    out = canonicalize(results)
+    assert [r.source_id for r in out] == ["issue_7", "issue_8"]
+    assert out[0].id == 1  # the burst row (better rank) is the survivor
+
+
+def test_canonicalize_honors_limit():
+    results = [sr(i, f"issue_{i}") for i in range(5)]
+    assert len(canonicalize(results, 3)) == 3
