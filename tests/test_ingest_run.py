@@ -1,5 +1,6 @@
 import numpy as np
 
+from knowbase.connectors.base import Row
 from knowbase.db import get_watermark, set_watermark
 from knowbase.ingest.run import run_ingest
 
@@ -26,8 +27,6 @@ class FakeConnector:
 
 
 def make_row(i):
-    from knowbase.connectors.base import Row
-
     return Row(source="fake", source_id=f"r{i}", document=f"doc {i}")
 
 
@@ -68,6 +67,16 @@ def test_run_ingest_sweeps_stale_rows_for_sweeping_connectors(clean_db):
     run_ingest(clean_db, second, FakeEmbedder())
     ids = {r[0] for r in clean_db.execute("SELECT source_id FROM embeddings").fetchall()}
     assert ids == {"r1", "r3"}
+
+
+def test_sweep_logs_deleted_row_count(clean_db, caplog):
+    run_ingest(clean_db, SweepingConnector([make_row(1), make_row(2)]), FakeEmbedder())
+    with caplog.at_level("INFO", logger="knowbase.ingest.run"):
+        run_ingest(
+            clean_db, SweepingConnector([make_row(1)], wm="wm-2"), FakeEmbedder()
+        )
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("1" in m and "fake" in m for m in messages)
 
 
 def test_run_ingest_never_sweeps_incremental_connectors(clean_db):

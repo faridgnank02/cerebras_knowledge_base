@@ -39,8 +39,9 @@ def test_empty_idf_stats_degrades_to_uniform_weights(clean_db):
     seed(clean_db)
     clean_db.execute("DELETE FROM idf_stats")
     results = fts_search(clean_db, "int64 serializable", limit=4)
-    ids = [r.source_id for r in results]
-    assert ids[0] == "issue_1"  # matches 2 uniform-weight tokens vs 1
+    assert [r.source_id for r in results] == ["issue_1", "issue_2"]
+    # uniform weight 1.0 per matched lexeme: issue_1 hits both, issue_2 one
+    assert [r.score for r in results] == [2.0, 1.0]
 
 
 def test_results_carry_updated_at_field(clean_db):

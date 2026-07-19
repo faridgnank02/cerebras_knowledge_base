@@ -4,6 +4,7 @@ from knowbase.connectors.base import Row
 from knowbase.db import upsert_rows
 from knowbase.ingest.embedder import Embedder
 from knowbase.ingest.idf import refresh_idf
+import knowbase.retrieval.fusion as fusion
 from knowbase.retrieval.fusion import hybrid_search
 
 TEST_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
@@ -38,7 +39,6 @@ def test_hybrid_boosts_exact_error_paste(clean_db, embedder):
 
 def test_hybrid_survives_fts_failure(clean_db, embedder, monkeypatch):
     seed(clean_db, embedder)
-    import knowbase.retrieval.fusion as fusion
 
     def boom(*a, **kw):
         raise RuntimeError("fts down")
