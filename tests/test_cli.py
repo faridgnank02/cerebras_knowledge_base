@@ -19,3 +19,62 @@ def test_first_line_empty_string():
 def test_searcher_rejects_unknown_mode():
     with pytest.raises(typer.BadParameter):
         _searcher("cosmic", conn=None, embedder=None, cfg=None)
+
+
+MINIMAL_YAML = (
+    "repo: {name: a/b, clone_path: ./x}\n"
+    "issues: {max_issues: 10}\n"
+    "code: {paths: [], exclude_dirs: []}\n"
+    "embedding: {model: m, dims: 384}\n"
+    "db: {dsn: postgresql://x/y}\n"
+)
+
+
+def test_ingest_without_key_fails_fast(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from knowbase.cli import app
+
+    monkeypatch.delenv("CEREBRAS_API_KEY", raising=False)
+    monkeypatch.delenv("KB_DSN", raising=False)
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(MINIMAL_YAML)
+    result = CliRunner().invoke(
+        app, ["ingest", "--source", "github_issues", "--config", str(cfg)]
+    )
+    assert result.exit_code != 0
+    assert "CEREBRAS_API_KEY" in result.output
+
+
+def test_ingest_no_distill_skips_key_check(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from knowbase.cli import app
+
+    monkeypatch.delenv("CEREBRAS_API_KEY", raising=False)
+    monkeypatch.delenv("KB_DSN", raising=False)
+    cfg = tmp_path / "config.yaml"
+    # unroutable DSN: the command must get PAST the key check, then fail on connect
+    cfg.write_text(MINIMAL_YAML.replace("postgresql://x/y", "postgresql://x:x@127.0.0.1:1/x"))
+    result = CliRunner().invoke(
+        app, ["ingest", "--source", "github_issues", "--no-distill", "--config", str(cfg)]
+    )
+    assert "CEREBRAS_API_KEY" not in result.output
+
+
+def test_searcher_single_leg_modes_canonicalize(monkeypatch):
+    import knowbase.cli as cli
+    from knowbase.retrieval.vector import SearchResult
+
+    def fake_vector_search(conn, embedder, q, limit):
+        assert limit == 6  # 2x the requested k
+        return [
+            SearchResult(id=1, source="github_issue", source_id="issue_1#burst_1",
+                         document="d", metadata={"parent": "issue_1"}, score=0.9),
+            SearchResult(id=2, source="github_issue", source_id="issue_1",
+                         document="d", metadata={}, score=0.5),
+        ]
+
+    monkeypatch.setattr(cli, "vector_search", fake_vector_search)
+    results = cli._searcher("vector", conn=None, embedder=None, cfg=None)("q", 3)
+    assert [r.source_id for r in results] == ["issue_1"]

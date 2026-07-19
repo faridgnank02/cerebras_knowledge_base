@@ -9,11 +9,13 @@ from knowbase.config import Config, load_config
 from knowbase.evals import evaluate, load_questions
 from knowbase.connectors.github_code import GitHubCodeConnector
 from knowbase.connectors.github_issues import GitHubIssuesConnector
+from knowbase.ingest.bursts import make_burst_scorer
+from knowbase.ingest.distill import Distiller
 from knowbase.ingest.embedder import Embedder
-from knowbase.ingest.idf import refresh_idf
+from knowbase.ingest.idf import load_idf, query_lexemes, refresh_idf
 from knowbase.ingest.run import run_ingest
 from knowbase.retrieval.fts import fts_search
-from knowbase.retrieval.fusion import hybrid_search
+from knowbase.retrieval.fusion import canonicalize, hybrid_search
 from knowbase.retrieval.vector import vector_search
 
 app = typer.Typer(no_args_is_help=True)
@@ -33,9 +35,11 @@ def _connect(cfg: Config):
 
 def _searcher(mode: str, conn, embedder, cfg):
     if mode == "vector":
-        return lambda q, k: vector_search(conn, embedder, q, limit=k)
+        return lambda q, k: canonicalize(
+            vector_search(conn, embedder, q, limit=2 * k), k
+        )
     if mode == "fts":
-        return lambda q, k: fts_search(conn, q, limit=k)
+        return lambda q, k: canonicalize(fts_search(conn, q, limit=2 * k), k)
     if mode == "hybrid":
         return lambda q, k: hybrid_search(
             conn, embedder, q, limit=k,
@@ -54,14 +58,25 @@ def _ensure_clone(cfg: Config) -> None:
         )
 
 
-def _build_connectors(cfg: Config, source: str) -> list:
+def _build_connectors(cfg: Config, source: str, conn=None, distiller=None) -> list:
     connectors = []
     if source in ("github_issues", "all"):
+        scorer = make_burst_scorer(
+            load_idf(conn),
+            lambda text: query_lexemes(conn, text),
+            idf_threshold=cfg.burst_idf_threshold,
+            min_chars=cfg.burst_min_chars,
+        )
+        cache = db_mod.load_distill_cache(conn, cfg.llm_model) if distiller else None
         connectors.append(
             GitHubIssuesConnector(
                 cfg.repo_name,
                 token=os.environ.get("GITHUB_TOKEN"),
                 max_issues=cfg.max_issues,
+                distiller=distiller,
+                distill_cache=cache,
+                burst_scorer=scorer,
+                min_burst_score=cfg.burst_min_score,
             )
         )
     if source in ("github_code", "all"):
@@ -80,12 +95,28 @@ def _build_connectors(cfg: Config, source: str) -> list:
 def ingest(
     source: str = typer.Option("all", help="github_issues | github_code | all"),
     full: bool = typer.Option(False, "--full", help="Reset watermarks and refetch everything"),
+    no_distill: bool = typer.Option(
+        False, "--no-distill", help="Skip LLM distillation of issue threads"
+    ),
     config: Path = typer.Option(Path("config.yaml")),
 ):
     cfg = load_config(config)
+    distiller = None
+    if not no_distill and source in ("github_issues", "all"):
+        api_key = os.environ.get("CEREBRAS_API_KEY")
+        if not api_key:
+            typer.echo(
+                "CEREBRAS_API_KEY is not set; pass --no-distill to ingest without distillation",
+                err=True,
+            )
+            raise typer.Exit(1)
+        distiller = Distiller(
+            cfg.llm_base_url, api_key, cfg.llm_model,
+            max_input_chars=cfg.llm_max_input_chars,
+        )
     conn = _connect(cfg)
     embedder = Embedder(cfg.embedding_model)
-    for connector in _build_connectors(cfg, source):
+    for connector in _build_connectors(cfg, source, conn, distiller):
         if full:
             db_mod.clear_watermark(conn, connector.name)
         typer.echo(f"Ingesting {connector.name}...")
@@ -93,6 +124,18 @@ def ingest(
         typer.echo(f"  {n} rows written")
     n_tokens = refresh_idf(conn)
     typer.echo(f"idf_stats refreshed: {n_tokens} tokens")
+    if source in ("github_issues", "all"):
+        stats = conn.execute(
+            """
+            SELECT count(*) FILTER (WHERE metadata->>'distilled' = 'true'),
+                   count(*) FILTER (WHERE metadata->>'distilled' = 'false'),
+                   count(*) FILTER (WHERE metadata->>'parent' IS NOT NULL)
+            FROM embeddings WHERE source = 'github_issue'
+            """
+        ).fetchone()
+        typer.echo(
+            f"issues: {stats[0]} distilled, {stats[1]} fallback, {stats[2]} burst rows"
+        )
 
 
 @app.command()

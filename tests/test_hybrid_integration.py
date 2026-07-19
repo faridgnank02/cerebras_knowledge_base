@@ -46,3 +46,19 @@ def test_hybrid_survives_fts_failure(clean_db, embedder, monkeypatch):
     monkeypatch.setattr(fusion, "fts_search", boom)
     results = hybrid_search(clean_db, embedder, "websocket drops", limit=3)
     assert results  # vector-only degradation, no crash
+
+
+def test_burst_hit_reported_as_parent(clean_db, embedder):
+    seed(clean_db, embedder)
+    vec = embedder.encode(["Websocket connection closes unexpectedly under load"])[0]
+    upsert_rows(
+        clean_db,
+        [Row(
+            source="github_issue", source_id="issue_3#burst_1",
+            document="Websocket connection closes unexpectedly under load",
+            metadata={"parent": "issue_3"}, embedding=vec,
+        )],
+    )
+    results = hybrid_search(clean_db, embedder, "websocket disconnects", limit=3)
+    assert all("#burst_" not in r.source_id for r in results)
+    assert "issue_3" in [r.source_id for r in results]
