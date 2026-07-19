@@ -3,7 +3,13 @@ from datetime import datetime, timezone
 import numpy as np
 
 from knowbase.connectors.base import Row
-from knowbase.db import get_watermark, set_watermark, upsert_rows
+from knowbase.db import (
+    clear_watermark,
+    delete_stale_rows,
+    get_watermark,
+    set_watermark,
+    upsert_rows,
+)
 
 
 def make_row(source_id="issue_1", document="how to return 404", **kw) -> Row:
@@ -44,18 +50,11 @@ def test_watermark_roundtrip(clean_db):
     assert get_watermark(clean_db, "github_issues") == "2026-02-01T00:00:00Z"
 
 
-from knowbase.db import delete_stale_rows
-
-
 def _row(sid, source="github_code"):
-    from knowbase.connectors.base import Row
-
     return Row(source=source, source_id=sid, document=f"doc {sid}")
 
 
 def test_delete_stale_rows_removes_unseen_ids(clean_db):
-    from knowbase.db import upsert_rows
-
     upsert_rows(clean_db, [_row("a#f"), _row("a#g"), _row("b#h")])
     upsert_rows(clean_db, [_row("issue_1", source="github_issue")])
     deleted = delete_stale_rows(clean_db, "github_code", ["a#f", "b#h"])
@@ -70,8 +69,6 @@ def test_delete_stale_rows_removes_unseen_ids(clean_db):
 
 
 def test_clear_watermark(clean_db):
-    from knowbase.db import clear_watermark, get_watermark, set_watermark
-
     set_watermark(clean_db, "github_issues", "2026-01-01T00:00:00Z")
     clear_watermark(clean_db, "github_issues")
     assert get_watermark(clean_db, "github_issues") is None

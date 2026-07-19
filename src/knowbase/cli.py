@@ -6,10 +6,15 @@ import typer
 
 from knowbase import db as db_mod
 from knowbase.config import Config, load_config
+from knowbase.evals import evaluate, load_questions
 from knowbase.connectors.github_code import GitHubCodeConnector
 from knowbase.connectors.github_issues import GitHubIssuesConnector
 from knowbase.ingest.embedder import Embedder
+from knowbase.ingest.idf import refresh_idf
 from knowbase.ingest.run import run_ingest
+from knowbase.retrieval.fts import fts_search
+from knowbase.retrieval.fusion import hybrid_search
+from knowbase.retrieval.vector import vector_search
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -27,10 +32,6 @@ def _connect(cfg: Config):
 
 
 def _searcher(mode: str, conn, embedder, cfg):
-    from knowbase.retrieval.fts import fts_search
-    from knowbase.retrieval.fusion import hybrid_search
-    from knowbase.retrieval.vector import vector_search
-
     if mode == "vector":
         return lambda q, k: vector_search(conn, embedder, q, limit=k)
     if mode == "fts":
@@ -81,8 +82,6 @@ def ingest(
     full: bool = typer.Option(False, "--full", help="Reset watermarks and refetch everything"),
     config: Path = typer.Option(Path("config.yaml")),
 ):
-    from knowbase.ingest.idf import refresh_idf
-
     cfg = load_config(config)
     conn = _connect(cfg)
     embedder = Embedder(cfg.embedding_model)
@@ -99,7 +98,9 @@ def ingest(
 @app.command()
 def search(
     query: str,
-    limit: int = typer.Option(10),
+    limit: int = typer.Option(
+        10, help="Results to show; hybrid mode draws from a 20-doc fused pool"
+    ),
     mode: str = typer.Option("hybrid", help="hybrid | vector | fts"),
     config: Path = typer.Option(Path("config.yaml")),
 ):
@@ -119,8 +120,6 @@ def eval(
     mode: str = typer.Option("hybrid", help="hybrid | vector | fts"),
     config: Path = typer.Option(Path("config.yaml")),
 ):
-    from knowbase.evals import evaluate, load_questions
-
     qs = load_questions(questions)
     if not qs:
         typer.echo("No questions in the eval set yet — see evals/questions.yaml.")

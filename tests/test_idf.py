@@ -1,5 +1,3 @@
-import pytest
-
 from knowbase.connectors.base import Row
 from knowbase.db import upsert_rows
 from knowbase.ingest.idf import load_idf, query_lexemes, refresh_idf
