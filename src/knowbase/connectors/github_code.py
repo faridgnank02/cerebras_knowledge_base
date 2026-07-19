@@ -8,6 +8,7 @@ from knowbase.ingest.chunker import chunk_python
 
 class GitHubCodeConnector:
     name = "github_code"
+    sweep_stale = True
 
     def __init__(
         self,
