@@ -193,3 +193,24 @@ def test_primary_rate_limit_gives_up_after_cap():
     with pytest.raises(httpx.HTTPStatusError):
         list(conn.fetch(None))
     assert calls["n"] == 6  # initial attempt + 5 retries
+
+
+def test_comments_paginate_past_100():
+    page1 = [{"user": {"login": f"u{i}"}, "body": f"c{i}"} for i in range(100)]
+    page2 = [{"user": {"login": "last"}, "body": "the fix"}]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/repos/fastapi/fastapi/issues":
+            page = int(request.url.params.get("page", "1"))
+            return httpx.Response(200, json=[{**ISSUE, "comments": 101}] if page == 1 else [])
+        if request.url.path == "/repos/fastapi/fastapi/issues/42/comments":
+            page = int(request.url.params.get("page", "1"))
+            return httpx.Response(200, json={1: page1, 2: page2}.get(page, []))
+        return httpx.Response(404)
+
+    conn = GitHubIssuesConnector(
+        "fastapi/fastapi", token=None, max_issues=10, client=_client(handler)
+    )
+    rows = list(conn.fetch(None))
+    assert len(rows[0].metadata["comment_authors"]) == 101
+    assert "the fix" in rows[0].document

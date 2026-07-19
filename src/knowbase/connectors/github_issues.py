@@ -89,11 +89,17 @@ class GitHubIssuesConnector:
     def _to_row(self, issue: dict) -> Row:
         comments: list[dict] = []
         if issue.get("comments", 0) > 0:
-            resp = self._get(
-                f"/repos/{self.repo}/issues/{issue['number']}/comments",
-                {"per_page": 100},
-            )
-            comments = resp.json()
+            page = 1
+            while True:
+                resp = self._get(
+                    f"/repos/{self.repo}/issues/{issue['number']}/comments",
+                    {"per_page": 100, "page": page},
+                )
+                batch = resp.json()
+                comments.extend(batch)
+                if len(batch) < 100:
+                    break
+                page += 1
         thread = format_thread(issue, comments)
         updated = issue["updated_at"]
         if self._max_updated is None or updated > self._max_updated:
