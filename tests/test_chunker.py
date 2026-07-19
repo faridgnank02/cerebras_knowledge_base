@@ -31,7 +31,15 @@ def test_splits_on_class_boundaries_first():
 def test_oversized_class_falls_back_to_methods():
     chunks = chunk_python(TWO_CLASSES, max_chars=200)
     assert all(len(c.text) <= 200 or c.symbol for c in chunks)
-    assert any(c.symbol and c.symbol.startswith("a") for c in chunks)
+    assert any(c.symbol and c.symbol.startswith("Alpha.a") for c in chunks)
+
+
+def test_method_chunks_carry_class_qualified_symbols():
+    chunks = chunk_python(TWO_CLASSES, max_chars=200)
+    method_symbols = {c.symbol for c in chunks if c.symbol and "." in c.symbol}
+    assert "Alpha.a0" in method_symbols
+    assert "Beta.b0" in method_symbols
+    assert not any(c.symbol in {"a0", "b0"} for c in chunks)
 
 
 def test_line_numbers_cover_the_file():
