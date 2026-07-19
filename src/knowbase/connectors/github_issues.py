@@ -7,10 +7,15 @@ import httpx
 from knowbase.connectors.base import Row
 
 
+def _login(obj: dict) -> str:
+    user = obj.get("user")
+    return user["login"] if user else "ghost"
+
+
 def format_thread(issue: dict, comments: list[dict]) -> str:
     parts = [f"# {issue['title']}", issue.get("body") or ""]
     for c in comments:
-        parts.append(f"--- {c['user']['login']} ---\n{c.get('body') or ''}")
+        parts.append(f"--- {_login(c)} ---\n{c.get('body') or ''}")
     return "\n\n".join(p for p in parts if p.strip())
 
 
@@ -35,11 +40,14 @@ class GitHubIssuesConnector:
         )
 
     def _get(self, url: str, params: dict) -> httpx.Response:
-        while True:
+        retries = 0
+        while retries <= 5:
             resp = self.client.get(url, params=params)
             if resp.status_code in (403, 429) and "Retry-After" in resp.headers:
-                time.sleep(int(resp.headers["Retry-After"]))
-                continue
+                if retries < 5:
+                    time.sleep(int(resp.headers["Retry-After"]))
+                    retries += 1
+                    continue
             resp.raise_for_status()
             return resp
 
@@ -86,9 +94,9 @@ class GitHubIssuesConnector:
                 "url": issue["html_url"],
                 "state": issue["state"],
                 "labels": [l["name"] for l in issue["labels"]],
-                "author": issue["user"]["login"],
+                "author": _login(issue),
                 "reactions": issue.get("reactions", {}).get("total_count", 0),
-                "comment_authors": [c["user"]["login"] for c in comments],
+                "comment_authors": [_login(c) for c in comments],
             },
             created_at=datetime.fromisoformat(issue["created_at"]),
             updated_at=datetime.fromisoformat(updated),

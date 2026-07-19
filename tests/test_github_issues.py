@@ -1,5 +1,4 @@
-import json
-
+import pytest
 import httpx
 
 from knowbase.connectors.github_issues import GitHubIssuesConnector
@@ -91,3 +90,41 @@ def test_retries_on_rate_limit_with_retry_after():
     conn = GitHubIssuesConnector("fastapi/fastapi", token=None, max_issues=10, client=client)
     assert list(conn.fetch(None)) == []
     assert calls["n"] == 2
+
+
+def test_rate_limit_gives_up_after_cap():
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(403, headers={"Retry-After": "0"}, json={})
+
+    client = httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="https://api.github.com"
+    )
+    conn = GitHubIssuesConnector("fastapi/fastapi", token=None, max_issues=10, client=client)
+    with pytest.raises(httpx.HTTPStatusError):
+        list(conn.fetch(None))
+    assert calls["n"] == 6  # initial attempt + 5 retries
+
+
+def test_null_user_becomes_ghost():
+    issue = {**ISSUE, "user": None, "comments": 1}
+    comments_null = [{"user": None, "body": "fixed it"}]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/repos/fastapi/fastapi/issues":
+            page = int(request.url.params.get("page", "1"))
+            return httpx.Response(200, json=[issue] if page == 1 else [])
+        if request.url.path == "/repos/fastapi/fastapi/issues/42/comments":
+            return httpx.Response(200, json=comments_null)
+        return httpx.Response(404)
+
+    client = httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="https://api.github.com"
+    )
+    conn = GitHubIssuesConnector("fastapi/fastapi", token=None, max_issues=10, client=client)
+    rows = list(conn.fetch(None))
+    assert rows[0].metadata["author"] == "ghost"
+    assert rows[0].metadata["comment_authors"] == ["ghost"]
+    assert "--- ghost ---" in rows[0].document
