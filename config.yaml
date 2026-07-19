@@ -1,0 +1,13 @@
+repo:
+  name: fastapi/fastapi
+  clone_path: ./data/fastapi
+issues:
+  max_issues: 3000
+code:
+  paths: ["fastapi"]
+  exclude_dirs: ["tests"]
+embedding:
+  model: BAAI/bge-m3
+  dims: 1024
+db:
+  dsn: postgresql://knowbase:knowbase@localhost:5433/knowbase
