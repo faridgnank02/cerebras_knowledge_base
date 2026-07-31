@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>knowbase</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1a1a; --muted: #6b7280; --line: #e5e7eb;
+    --accent: #2563eb; --card: #f9fafb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418; --fg: #e6e6e6; --muted: #9ca3af; --line: #2a2f36;
+      --accent: #60a5fa; --card: #1a1f26;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0 auto; max-width: 760px; padding: 2rem 1rem;
+    background: var(--bg); color: var(--fg);
+    font: 16px/1.55 system-ui, -apple-system, sans-serif;
+  }
+  h1 { font-size: 1.3rem; margin: 0 0 1rem; }
+  h1 span { color: var(--muted); font-weight: normal; font-size: 0.9rem; }
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+  input[type=text] {
+    flex: 1; padding: 0.6rem 0.8rem; border: 1px solid var(--line);
+    border-radius: 8px; background: var(--card); color: var(--fg); font-size: 1rem;
+  }
+  button {
+    padding: 0.6rem 1rem; border: none; border-radius: 8px;
+    background: var(--accent); color: #fff; font-size: 1rem; cursor: pointer;
+  }
+  .modes { margin-bottom: 1.5rem; font-size: 0.9rem; color: var(--muted); }
+  .modes label { margin-right: 1rem; cursor: pointer; }
+  #status { color: var(--muted); font-size: 0.9rem; min-height: 1.4em; }
+  #answer {
+    white-space: pre-wrap; background: var(--card); border: 1px solid var(--line);
+    border-radius: 8px; padding: 1rem; margin: 1rem 0; display: none;
+  }
+  .hit {
+    padding: 0.6rem 0; border-bottom: 1px solid var(--line);
+  }
+  .hit .meta { font-size: 0.85rem; color: var(--muted); }
+  .hit a { color: var(--accent); text-decoration: none; }
+  .badge {
+    display: inline-block; font-size: 0.72rem; padding: 0.05rem 0.45rem;
+    border-radius: 999px; border: 1px solid var(--line); color: var(--muted);
+    margin-right: 0.4rem; vertical-align: 1px;
+  }
+  #people { margin-top: 1rem; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<h1>knowbase <span>FastAPI code + issues</span></h1>
+<form id="f">
+  <input type="text" id="q" placeholder="Ask or search…" autofocus>
+  <button type="submit">Go</button>
+</form>
+<div class="modes">
+  <label><input type="radio" name="mode" value="search" checked> search (LLM-free)</label>
+  <label><input type="radio" name="mode" value="ask"> ask (full pipeline)</label>
+</div>
+<div id="status"></div>
+<div id="answer"></div>
+<div id="results"></div>
+<div id="people"></div>
+<script>
+const $ = (id) => document.getElementById(id);
+
+function hitHtml(h) {
+  const link = h.url && h.url.startsWith("http")
+    ? `<a href="${h.url}" target="_blank" rel="noopener">${h.url}</a>` : (h.url || "");
+  const n = h.n ? `[${h.n}] ` : "";
+  const score = h.score !== undefined ? h.score.toFixed(3) : "";
+  return `<div class="hit">
+    <div>${n}<span class="badge">${h.source || "evidence"}</span><strong>${h.source_id}</strong></div>
+    <div>${h.snippet || ""}</div>
+    <div class="meta">${score} ${link}</div>
+  </div>`;
+}
+
+$("f").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const query = $("q").value.trim();
+  if (!query) return;
+  const mode = document.querySelector("input[name=mode]:checked").value;
+  $("answer").style.display = "none";
+  $("results").innerHTML = $("people").innerHTML = "";
+  $("status").textContent = mode === "ask" ? "Planning, retrieving, synthesizing…" : "Searching…";
+  try {
+    if (mode === "search") {
+      const resp = await fetch("/api/search", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({query, limit: 10}),
+      });
+      const body = await resp.json();
+      $("status").textContent = `${body.results.length} results`;
+      $("results").innerHTML = body.results.map(hitHtml).join("");
+    } else {
+      const resp = await fetch("/api/ask", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({question: query}),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      const body = await resp.json();
+      $("status").textContent = `tools: ${body.tools.join(", ")}`;
+      if (body.answer) {
+        $("answer").textContent = body.answer;
+        $("answer").style.display = "block";
+      }
+      $("results").innerHTML = body.evidence.map(hitHtml).join("");
+      if (body.people.length) {
+        $("people").innerHTML = "<strong>People:</strong> " +
+          body.people.map(p => `${p.author} (${p.score.toFixed(2)})`).join(", ");
+      }
+    }
+  } catch (err) {
+    $("status").textContent = "Error: " + err.message;
+  }
+});
+</script>
+</body>
+</html>
