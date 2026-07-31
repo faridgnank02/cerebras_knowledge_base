@@ -1,3 +1,5 @@
+import hashlib
+
 import pytest
 import httpx
 
@@ -193,6 +195,167 @@ def test_primary_rate_limit_gives_up_after_cap():
     with pytest.raises(httpx.HTTPStatusError):
         list(conn.fetch(None))
     assert calls["n"] == 6  # initial attempt + 5 retries
+
+
+def test_comment_reactions_are_collected():
+    comments = [
+        {"user": {"login": "owen"}, "body": "fix", "reactions": {"total_count": 4}},
+        {"user": {"login": "pat"}, "body": "thanks"},  # no reactions key
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/repos/fastapi/fastapi/issues":
+            page = int(request.url.params.get("page", "1"))
+            return httpx.Response(200, json=[{**ISSUE, "comments": 2}] if page == 1 else [])
+        if request.url.path == "/repos/fastapi/fastapi/issues/42/comments":
+            return httpx.Response(200, json=comments)
+        return httpx.Response(404)
+
+    conn = GitHubIssuesConnector(
+        "fastapi/fastapi", token=None, max_issues=10, client=_client(handler)
+    )
+    fetched = conn._fetch_comments({**ISSUE, "comments": 2})
+    assert fetched == [
+        {"author": "owen", "body": "fix", "reactions": 4},
+        {"author": "pat", "body": "thanks", "reactions": 0},
+    ]
+
+
+class FakeDistiller:
+    model = "test-model"
+
+    def __init__(self, result="Question: distilled"):
+        self.result = result
+        self.calls = 0
+
+    def distill_document(self, title, thread):
+        self.calls += 1
+        return self.result
+
+
+def _issue_conn(**kw):
+    return GitHubIssuesConnector(
+        "fastapi/fastapi", token=None, max_issues=10,
+        client=make_client({1: [ISSUE]}), **kw,
+    )
+
+
+def test_distilled_document_replaces_raw_but_raw_content_stays():
+    conn = _issue_conn(distiller=FakeDistiller())
+    row = next(conn.fetch(None))
+    assert row.document == "Question: distilled"
+    assert "CKPT_PREFETCH=4" in row.raw_content
+    assert row.metadata["distilled"] is True
+    assert row.metadata["distill_model"] == "test-model"
+    assert row.metadata["raw_sha"] == hashlib.sha256(row.raw_content.encode()).hexdigest()
+
+
+def test_distill_failure_falls_back_to_raw():
+    conn = _issue_conn(distiller=FakeDistiller(result=None))
+    row = next(conn.fetch(None))
+    assert row.document == row.raw_content
+    assert row.metadata["distilled"] is False
+    assert "distill_model" not in row.metadata
+
+
+def test_no_distiller_means_raw_document():
+    conn = _issue_conn()
+    row = next(conn.fetch(None))
+    assert row.document == row.raw_content
+    assert row.metadata["distilled"] is False
+
+
+def test_cache_hit_skips_llm_call():
+    distiller = FakeDistiller()
+    probe = _issue_conn()
+    raw = next(probe.fetch(None)).raw_content
+    sha = hashlib.sha256(raw.encode()).hexdigest()
+    conn = _issue_conn(
+        distiller=distiller, distill_cache={"issue_42": (sha, "cached doc")}
+    )
+    row = next(conn.fetch(None))
+    assert row.document == "cached doc"
+    assert row.metadata["distilled"] is True
+    assert distiller.calls == 0
+
+
+def test_cache_miss_on_changed_raw_calls_llm():
+    distiller = FakeDistiller()
+    conn = _issue_conn(
+        distiller=distiller, distill_cache={"issue_42": ("stale-sha", "cached doc")}
+    )
+    row = next(conn.fetch(None))
+    assert row.document == "Question: distilled"
+    assert distiller.calls == 1
+
+
+def _burst_client(comments):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/repos/fastapi/fastapi/issues":
+            page = int(request.url.params.get("page", "1"))
+            return httpx.Response(
+                200, json=[{**ISSUE, "comments": len(comments)}] if page == 1 else []
+            )
+        if request.url.path == "/repos/fastapi/fastapi/issues/42/comments":
+            return httpx.Response(200, json=comments)
+        return httpx.Response(404)
+
+    return _client(handler)
+
+
+THREE_COMMENTS = [
+    {"user": {"login": "owen"}, "body": "short"},
+    {"user": {"login": "pat"}, "body": "the real fix with detail"},
+    {"user": {"login": "pat"}, "body": "and a follow-up"},
+]
+
+
+def test_qualifying_bursts_become_rows():
+    conn = GitHubIssuesConnector(
+        "fastapi/fastapi", token=None, max_issues=10,
+        client=_burst_client(THREE_COMMENTS),
+        burst_scorer=lambda b: 1 if "fix" in b.text else 0,
+    )
+    rows = list(conn.fetch(None))
+    assert [r.source_id for r in rows] == ["issue_42", "issue_42#burst_1"]
+    burst = rows[1]
+    assert burst.document == (
+        "# Restore stalls after manifest load\n\nthe real fix with detail\n\nand a follow-up"
+    )
+    assert burst.raw_content is None
+    assert burst.metadata["parent"] == "issue_42"
+    assert burst.metadata["kind"] == "burst"
+    assert burst.metadata["author"] == "pat"
+    assert burst.metadata["url"] == ISSUE["html_url"]
+    assert burst.updated_at == rows[0].updated_at
+
+
+def test_min_burst_score_filters():
+    conn = GitHubIssuesConnector(
+        "fastapi/fastapi", token=None, max_issues=10,
+        client=_burst_client(THREE_COMMENTS),
+        burst_scorer=lambda b: 1, min_burst_score=2,
+    )
+    rows = list(conn.fetch(None))
+    assert [r.source_id for r in rows] == ["issue_42"]
+
+
+def test_single_author_thread_emits_no_bursts():
+    own = [{"user": {"login": "maya"}, "body": "answering my own question"}]
+    conn = GitHubIssuesConnector(
+        "fastapi/fastapi", token=None, max_issues=10,
+        client=_burst_client(own), burst_scorer=lambda b: 3,
+    )
+    rows = list(conn.fetch(None))
+    assert [r.source_id for r in rows] == ["issue_42"]  # ISSUE author is maya
+
+
+def test_no_scorer_no_bursts():
+    conn = GitHubIssuesConnector(
+        "fastapi/fastapi", token=None, max_issues=10,
+        client=_burst_client(THREE_COMMENTS),
+    )
+    assert [r.source_id for r in conn.fetch(None)] == ["issue_42"]
 
 
 def test_comments_paginate_past_100():

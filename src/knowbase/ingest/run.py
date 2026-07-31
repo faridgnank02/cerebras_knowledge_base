@@ -1,8 +1,18 @@
+import logging
+
 import psycopg
 
 from knowbase.connectors.base import Connector, Row
-from knowbase.db import delete_stale_rows, get_watermark, set_watermark, upsert_rows
+from knowbase.db import (
+    delete_stale_children,
+    delete_stale_rows,
+    get_watermark,
+    set_watermark,
+    upsert_rows,
+)
 from knowbase.ingest.embedder import Embedder
+
+logger = logging.getLogger(__name__)
 
 
 def run_ingest(
@@ -23,9 +33,14 @@ def run_ingest(
             batch = []
     if batch:
         total += _flush(conn, embedder, batch)
+    for source, ids in seen.items():
+        removed = delete_stale_children(conn, source, ids)
+        if removed:
+            logger.info("removed %d stale child rows from source %s", removed, source)
     if getattr(connector, "sweep_stale", False) and seen:
         for source, ids in seen.items():
-            delete_stale_rows(conn, source, ids)
+            deleted = delete_stale_rows(conn, source, ids)
+            logger.info("swept %d stale rows from source %s", deleted, source)
     wm = connector.watermark()
     if wm is not None:
         set_watermark(conn, connector.name, wm)

@@ -27,6 +27,20 @@ def rrf_fuse(lists: list[list[SearchResult]], k: int = RRF_K) -> list[SearchResu
     return fused
 
 
+def canonicalize(
+    results: list[SearchResult], limit: int | None = None
+) -> list[SearchResult]:
+    out: list[SearchResult] = []
+    seen: set[str] = set()
+    for r in results:
+        canon = (r.metadata or {}).get("parent") or r.source_id
+        if canon in seen:
+            continue
+        seen.add(canon)
+        out.append(replace(r, source_id=canon))
+    return out if limit is None else out[:limit]
+
+
 def cap_per_file(results: list[SearchResult], cap: int = 3) -> list[SearchResult]:
     counts: dict[str, int] = {}
     out = []
@@ -65,7 +79,7 @@ def hybrid_search(
     epsilon: float = 5e-5,
     depth: int = 50,
 ) -> list[SearchResult]:
-    vec = vector_search(conn, embedder, query, limit=depth)
+    vec = canonicalize(vector_search(conn, embedder, query, limit=depth))
     try:
         lex = fts_search(conn, query, limit=depth)
     except Exception:
