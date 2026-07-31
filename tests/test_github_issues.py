@@ -128,3 +128,89 @@ def test_null_user_becomes_ghost():
     assert rows[0].metadata["author"] == "ghost"
     assert rows[0].metadata["comment_authors"] == ["ghost"]
     assert "--- ghost ---" in rows[0].document
+
+
+def _client(handler):
+    return httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="https://api.github.com"
+    )
+
+
+def test_primary_rate_limit_sleeps_until_reset():
+    calls = {"n": 0}
+    slept = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(
+                403,
+                headers={"x-ratelimit-remaining": "0", "x-ratelimit-reset": "1030"},
+                json={},
+            )
+        return httpx.Response(200, json=[])
+
+    conn = GitHubIssuesConnector(
+        "fastapi/fastapi", token=None, max_issues=10, client=_client(handler),
+        sleep=slept.append, now=lambda: 1000.0,
+    )
+    assert list(conn.fetch(None)) == []
+    assert calls["n"] == 2
+    assert slept == [31]  # reset(1030) - now(1000) + 1
+
+
+def test_plain_403_raises_immediately():
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(403, json={"message": "forbidden"})
+
+    conn = GitHubIssuesConnector(
+        "fastapi/fastapi", token=None, max_issues=10, client=_client(handler)
+    )
+    with pytest.raises(httpx.HTTPStatusError):
+        list(conn.fetch(None))
+    assert calls["n"] == 1  # no retries without rate-limit signal
+
+
+def test_primary_rate_limit_gives_up_after_cap():
+    calls = {"n": 0}
+    slept = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(
+            403,
+            headers={"x-ratelimit-remaining": "0", "x-ratelimit-reset": "0"},
+            json={},
+        )
+
+    conn = GitHubIssuesConnector(
+        "fastapi/fastapi", token=None, max_issues=10, client=_client(handler),
+        sleep=slept.append, now=lambda: 0.0,
+    )
+    with pytest.raises(httpx.HTTPStatusError):
+        list(conn.fetch(None))
+    assert calls["n"] == 6  # initial attempt + 5 retries
+
+
+def test_comments_paginate_past_100():
+    page1 = [{"user": {"login": f"u{i}"}, "body": f"c{i}"} for i in range(100)]
+    page2 = [{"user": {"login": "last"}, "body": "the fix"}]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/repos/fastapi/fastapi/issues":
+            page = int(request.url.params.get("page", "1"))
+            return httpx.Response(200, json=[{**ISSUE, "comments": 101}] if page == 1 else [])
+        if request.url.path == "/repos/fastapi/fastapi/issues/42/comments":
+            page = int(request.url.params.get("page", "1"))
+            return httpx.Response(200, json={1: page1, 2: page2}.get(page, []))
+        return httpx.Response(404)
+
+    conn = GitHubIssuesConnector(
+        "fastapi/fastapi", token=None, max_issues=10, client=_client(handler)
+    )
+    rows = list(conn.fetch(None))
+    assert len(rows[0].metadata["comment_authors"]) == 101
+    assert "the fix" in rows[0].document

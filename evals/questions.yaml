@@ -3,6 +3,9 @@
 #     expected: [source_id, ...]   # any hit in top-k counts
 # Authored against the FastAPI corpus ingested 2026-07-19 (3000 issues + 687 code chunks).
 # Issue questions are paraphrased (not verbatim titles) so lexical search can't trivially win.
+# P2: expanded from 22 to 31 questions — code answers migrated to symbol chunk ids
+# (path#symbol@N), plus 9 lexical-strength additions (5 exact error pastes, 4 exact
+# identifiers) under the P2 marker below.
 
 # --- Issue questions ---
 - question: "Why does my HTTPBearer-protected endpoint return 403 instead of 401 when credentials are missing?"
@@ -41,15 +44,38 @@
   expected: [issue_2972, issue_982]
 
 # --- Code questions ---
+# Migrated to symbol ids in P2 (post-fix corpus uses path#symbol@N chunk ids, not
+# line ranges). Each id below was verified to exist and to cover the same symbol(s)
+# the old #L ranges pointed at (see docs/blog/p2-baseline.md for the mapping).
 - question: "Where is the OAuth2 password bearer security scheme class implemented?"
-  expected: ["fastapi/security/oauth2.py#L433-L441", "fastapi/security/oauth2.py#L442-L497"]
+  expected: ["fastapi/security/oauth2.py#OAuth2PasswordBearer", "fastapi/security/oauth2.py#__init__@6", "fastapi/security/oauth2.py#__init__@7"]
 - question: "Which function converts arbitrary objects into JSON-compatible data structures?"
-  expected: ["fastapi/encoders.py#L129-L192", "fastapi/encoders.py#L193-L242", "fastapi/encoders.py#L243-L300", "fastapi/encoders.py#L301-L353", "fastapi/encoders.py#L354-L364"]
+  expected: ["fastapi/encoders.py#jsonable_encoder", "fastapi/encoders.py#jsonable_encoder@2", "fastapi/encoders.py#jsonable_encoder@3", "fastapi/encoders.py#jsonable_encoder@4", "fastapi/encoders.py#jsonable_encoder@5"]
 - question: "Where is the HTTPException class defined?"
-  expected: ["fastapi/exceptions.py#L17-L37", "fastapi/exceptions.py#L38-L44"]
+  expected: ["fastapi/exceptions.py#HTTPException"]
 - question: "Where does FastAPI implement running background tasks after a response is returned?"
-  expected: ["fastapi/background.py#L1-L61"]
+  expected: ["fastapi/background.py#module"]
 - question: "Where is the API key header authentication scheme implemented?"
-  expected: ["fastapi/security/api_key.py#L147-L173"]
+  expected: ["fastapi/security/api_key.py#APIKeyHeader"]
 - question: "Which class represents an uploaded file received in a request?"
-  expected: ["fastapi/datastructures.py#L21-L44"]
+  expected: ["fastapi/datastructures.py#UploadFile"]
+
+# --- P2 additions: lexical-strength questions (error pastes, identifiers) ---
+- question: "RuntimeError: Expected ASGI message 'websocket.accept' or 'websocket.close', but got 'http.response.start'."
+  expected: [issue_4123]
+- question: "AssertionError: Status code 204 must not have a response body"
+  expected: [issue_9424]
+- question: "pydantic_core._pydantic_core.SchemaError: Error building \"str\" validator:"
+  expected: [issue_11755]
+- question: "pydantic.errors.PydanticImportError: pydantic:BaseSettings has been removed in V2."
+  expected: [issue_9710]
+- question: "ValueError: invalid literal for int() with base 10: '5XX'"
+  expected: [issue_5326]
+- question: "What does the decimal_encoder function do?"
+  expected: ["fastapi/encoders.py#decimal_encoder"]
+- question: "Where is generate_encoders_by_class_tuples defined?"
+  expected: ["fastapi/encoders.py#generate_encoders_by_class_tuples"]
+- question: "What is DependencyScopeError used for?"
+  expected: ["fastapi/exceptions.py#DependencyScopeError"]
+- question: "Where is the make_not_authenticated_error helper defined?"
+  expected: ["fastapi/security/oauth2.py#make_not_authenticated_error"]

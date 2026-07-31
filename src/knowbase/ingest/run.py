@@ -1,7 +1,7 @@
 import psycopg
 
 from knowbase.connectors.base import Connector, Row
-from knowbase.db import get_watermark, set_watermark, upsert_rows
+from knowbase.db import delete_stale_rows, get_watermark, set_watermark, upsert_rows
 from knowbase.ingest.embedder import Embedder
 
 
@@ -14,13 +14,18 @@ def run_ingest(
     since = get_watermark(conn, connector.name)
     batch: list[Row] = []
     total = 0
+    seen: dict[str, list[str]] = {}
     for row in connector.fetch(since):
+        seen.setdefault(row.source, []).append(row.source_id)
         batch.append(row)
         if len(batch) >= batch_size:
             total += _flush(conn, embedder, batch)
             batch = []
     if batch:
         total += _flush(conn, embedder, batch)
+    if getattr(connector, "sweep_stale", False) and seen:
+        for source, ids in seen.items():
+            delete_stale_rows(conn, source, ids)
     wm = connector.watermark()
     if wm is not None:
         set_watermark(conn, connector.name, wm)
