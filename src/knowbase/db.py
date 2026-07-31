@@ -47,6 +47,14 @@ def init_db(conn: psycopg.Connection, dims: int) -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS idf_stats (
+            token     TEXT PRIMARY KEY,
+            doc_freq  INT NOT NULL
+        )
+        """
+    )
 
 
 def upsert_rows(conn: psycopg.Connection, rows: list[Row]) -> int:
@@ -94,3 +102,15 @@ def set_watermark(conn: psycopg.Connection, connector: str, watermark: str) -> N
         """,
         (connector, watermark),
     )
+
+
+def clear_watermark(conn: psycopg.Connection, connector: str) -> None:
+    conn.execute("DELETE FROM sync_state WHERE connector = %s", (connector,))
+
+
+def delete_stale_rows(conn: psycopg.Connection, source: str, keep_ids: list[str]) -> int:
+    cur = conn.execute(
+        "DELETE FROM embeddings WHERE source = %s AND NOT (source_id = ANY(%s))",
+        (source, keep_ids),
+    )
+    return cur.rowcount

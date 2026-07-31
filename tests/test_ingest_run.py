@@ -55,3 +55,30 @@ def test_run_ingest_no_watermark_update_when_none(clean_db):
     connector = FakeConnector([make_row(1)], wm=None)
     run_ingest(clean_db, connector, FakeEmbedder())
     assert get_watermark(clean_db, "fake") is None
+
+
+class SweepingConnector(FakeConnector):
+    sweep_stale = True
+
+
+def test_run_ingest_sweeps_stale_rows_for_sweeping_connectors(clean_db):
+    first = SweepingConnector([make_row(1), make_row(2)])
+    run_ingest(clean_db, first, FakeEmbedder())
+    second = SweepingConnector([make_row(1), make_row(3)], wm="wm-2")
+    run_ingest(clean_db, second, FakeEmbedder())
+    ids = {r[0] for r in clean_db.execute("SELECT source_id FROM embeddings").fetchall()}
+    assert ids == {"r1", "r3"}
+
+
+def test_run_ingest_never_sweeps_incremental_connectors(clean_db):
+    run_ingest(clean_db, FakeConnector([make_row(1), make_row(2)]), FakeEmbedder())
+    run_ingest(clean_db, FakeConnector([make_row(3)], wm="wm-2"), FakeEmbedder())
+    count = clean_db.execute("SELECT count(*) FROM embeddings").fetchone()[0]
+    assert count == 3
+
+
+def test_run_ingest_no_sweep_on_empty_walk(clean_db):
+    run_ingest(clean_db, SweepingConnector([make_row(1)]), FakeEmbedder())
+    run_ingest(clean_db, SweepingConnector([], wm="wm-1"), FakeEmbedder())  # skipped walk
+    count = clean_db.execute("SELECT count(*) FROM embeddings").fetchone()[0]
+    assert count == 1

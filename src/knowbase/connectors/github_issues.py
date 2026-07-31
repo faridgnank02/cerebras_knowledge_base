@@ -28,10 +28,14 @@ class GitHubIssuesConnector:
         token: str | None,
         max_issues: int,
         client: httpx.Client | None = None,
+        sleep=time.sleep,
+        now=time.time,
     ):
         self.repo = repo
         self.max_issues = max_issues
         self._max_updated: str | None = None
+        self._sleep = sleep
+        self._now = now
         headers = {"Accept": "application/vnd.github+json"}
         if token:
             headers["Authorization"] = f"Bearer {token}"
@@ -39,13 +43,22 @@ class GitHubIssuesConnector:
             base_url="https://api.github.com", headers=headers, timeout=30
         )
 
+    def _retry_wait(self, resp: httpx.Response) -> int | None:
+        if "Retry-After" in resp.headers:
+            return int(resp.headers["Retry-After"])
+        if resp.headers.get("x-ratelimit-remaining") == "0":
+            reset = int(resp.headers.get("x-ratelimit-reset", "0"))
+            return max(0, int(reset - self._now())) + 1
+        return None
+
     def _get(self, url: str, params: dict) -> httpx.Response:
         retries = 0
-        while retries <= 5:
+        while True:
             resp = self.client.get(url, params=params)
-            if resp.status_code in (403, 429) and "Retry-After" in resp.headers:
-                if retries < 5:
-                    time.sleep(int(resp.headers["Retry-After"]))
+            if resp.status_code in (403, 429) and retries < 5:
+                wait = self._retry_wait(resp)
+                if wait is not None:
+                    self._sleep(wait)
                     retries += 1
                     continue
             resp.raise_for_status()
@@ -76,11 +89,17 @@ class GitHubIssuesConnector:
     def _to_row(self, issue: dict) -> Row:
         comments: list[dict] = []
         if issue.get("comments", 0) > 0:
-            resp = self._get(
-                f"/repos/{self.repo}/issues/{issue['number']}/comments",
-                {"per_page": 100},
-            )
-            comments = resp.json()
+            page = 1
+            while True:
+                resp = self._get(
+                    f"/repos/{self.repo}/issues/{issue['number']}/comments",
+                    {"per_page": 100, "page": page},
+                )
+                batch = resp.json()
+                comments.extend(batch)
+                if len(batch) < 100:
+                    break
+                page += 1
         thread = format_thread(issue, comments)
         updated = issue["updated_at"]
         if self._max_updated is None or updated > self._max_updated:

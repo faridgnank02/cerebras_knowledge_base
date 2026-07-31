@@ -26,6 +26,23 @@ def _connect(cfg: Config):
     return conn
 
 
+def _searcher(mode: str, conn, embedder, cfg):
+    from knowbase.retrieval.fts import fts_search
+    from knowbase.retrieval.fusion import hybrid_search
+    from knowbase.retrieval.vector import vector_search
+
+    if mode == "vector":
+        return lambda q, k: vector_search(conn, embedder, q, limit=k)
+    if mode == "fts":
+        return lambda q, k: fts_search(conn, q, limit=k)
+    if mode == "hybrid":
+        return lambda q, k: hybrid_search(
+            conn, embedder, q, limit=k,
+            tau_days=cfg.decay_tau_days, epsilon=cfg.decay_epsilon,
+        )
+    raise typer.BadParameter(f"unknown mode: {mode} (vector | fts | hybrid)")
+
+
 def _ensure_clone(cfg: Config) -> None:
     if not cfg.clone_path.exists():
         typer.echo(f"Cloning {cfg.repo_name} into {cfg.clone_path}...")
@@ -61,29 +78,36 @@ def _build_connectors(cfg: Config, source: str) -> list:
 @app.command()
 def ingest(
     source: str = typer.Option("all", help="github_issues | github_code | all"),
+    full: bool = typer.Option(False, "--full", help="Reset watermarks and refetch everything"),
     config: Path = typer.Option(Path("config.yaml")),
 ):
+    from knowbase.ingest.idf import refresh_idf
+
     cfg = load_config(config)
     conn = _connect(cfg)
     embedder = Embedder(cfg.embedding_model)
     for connector in _build_connectors(cfg, source):
+        if full:
+            db_mod.clear_watermark(conn, connector.name)
         typer.echo(f"Ingesting {connector.name}...")
         n = run_ingest(conn, connector, embedder)
         typer.echo(f"  {n} rows written")
+    n_tokens = refresh_idf(conn)
+    typer.echo(f"idf_stats refreshed: {n_tokens} tokens")
 
 
 @app.command()
 def search(
     query: str,
     limit: int = typer.Option(10),
+    mode: str = typer.Option("hybrid", help="hybrid | vector | fts"),
     config: Path = typer.Option(Path("config.yaml")),
 ):
-    from knowbase.retrieval.vector import vector_search
-
     cfg = load_config(config)
     conn = _connect(cfg)
     embedder = Embedder(cfg.embedding_model)
-    for rank, r in enumerate(vector_search(conn, embedder, query, limit), start=1):
+    search_fn = _searcher(mode, conn, embedder, cfg)
+    for rank, r in enumerate(search_fn(query, limit), start=1):
         first_line = _first_line(r.document)
         url = r.metadata.get("url", "")
         typer.echo(f"{rank:2}. [{r.score:.3f}] {r.source_id}  {first_line}  {url}")
@@ -92,7 +116,7 @@ def search(
 @app.command()
 def eval(
     questions: Path = typer.Option(Path("evals/questions.yaml")),
-    k: int = typer.Option(10),
+    mode: str = typer.Option("hybrid", help="hybrid | vector | fts"),
     config: Path = typer.Option(Path("config.yaml")),
 ):
     from knowbase.evals import evaluate, load_questions
@@ -104,8 +128,11 @@ def eval(
     cfg = load_config(config)
     conn = _connect(cfg)
     embedder = Embedder(cfg.embedding_model)
-    report = evaluate(conn, embedder, qs, k=k)
-    typer.echo(f"recall@{k}: {report.recall_at_k:.2f} ({report.hits}/{report.total})")
+    report = evaluate(_searcher(mode, conn, embedder, cfg), qs)
+    typer.echo(f"mode: {mode}")
+    for k in sorted(report.recall):
+        typer.echo(f"recall@{k}: {report.recall[k]:.2f} ({report.hits[k]}/{report.total})")
+    typer.echo(f"MRR: {report.mrr:.2f}")
     for miss in report.misses:
         typer.echo(f"  MISS: {miss}")
 

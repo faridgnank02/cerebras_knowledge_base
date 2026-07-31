@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 
 import psycopg
 
@@ -13,6 +14,7 @@ class SearchResult:
     document: str
     metadata: dict
     score: float
+    updated_at: datetime | None = None
 
 
 def vector_search(
@@ -22,7 +24,7 @@ def vector_search(
     cur = conn.execute(
         """
         SELECT id, source, source_id, document, metadata,
-               1 - (embedding <=> %s) AS score
+               1 - (embedding <=> %s) AS score, updated_at
         FROM embeddings
         WHERE embedding IS NOT NULL
         ORDER BY embedding <=> %s

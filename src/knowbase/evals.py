@@ -1,17 +1,19 @@
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
-import psycopg
 import yaml
 
-from knowbase.ingest.embedder import Embedder
-from knowbase.retrieval.vector import vector_search
+from knowbase.retrieval.vector import SearchResult
+
+SearchFn = Callable[[str, int], list[SearchResult]]
 
 
 @dataclass
 class EvalReport:
-    recall_at_k: float
-    hits: int
+    recall: dict[int, float]
+    hits: dict[int, int]
+    mrr: float
     total: int
     misses: list[str]
 
@@ -24,20 +26,34 @@ def load_questions(path: str | Path) -> list[dict]:
 
 
 def evaluate(
-    conn: psycopg.Connection,
-    embedder: Embedder,
+    search_fn: SearchFn,
     questions: list[dict],
-    k: int = 10,
+    ks: tuple[int, ...] = (1, 3, 10),
 ) -> EvalReport:
-    hits = 0
+    kmax = max(ks)
+    hits = {k: 0 for k in ks}
+    rr_sum = 0.0
     misses: list[str] = []
     for q in questions:
-        results = vector_search(conn, embedder, q["question"], limit=k)
-        found_ids = {r.source_id for r in results}
-        if found_ids.intersection(q["expected"]):
-            hits += 1
-        else:
+        results = search_fn(q["question"], kmax)
+        expected = set(q["expected"])
+        rank = next(
+            (i for i, r in enumerate(results, start=1) if r.source_id in expected),
+            None,
+        )
+        if rank is None:
             misses.append(q["question"])
+            continue
+        rr_sum += 1.0 / rank
+        for k in ks:
+            if rank <= k:
+                hits[k] += 1
     total = len(questions)
-    recall = hits / total if total else 0.0
-    return EvalReport(recall_at_k=recall, hits=hits, total=total, misses=misses)
+    recall = {k: (hits[k] / total if total else 0.0) for k in ks}
+    return EvalReport(
+        recall=recall,
+        hits=hits,
+        mrr=(rr_sum / total if total else 0.0),
+        total=total,
+        misses=misses,
+    )
