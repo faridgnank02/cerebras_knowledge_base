@@ -1,6 +1,6 @@
 import pytest
 
-from knowbase.evals import EvalReport, evaluate, load_questions
+from knowbase.evals import evaluate, load_questions
 from knowbase.retrieval.vector import SearchResult
 
 

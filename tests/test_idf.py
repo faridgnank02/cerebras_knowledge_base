@@ -1,8 +1,24 @@
-import pytest
-
 from knowbase.connectors.base import Row
 from knowbase.db import upsert_rows
 from knowbase.ingest.idf import load_idf, query_lexemes, refresh_idf
+
+
+def test_refresh_idf_ignores_burst_rows(clean_db):
+    upsert_rows(clean_db, [Row(source="github_issue", source_id="i1", document="zebra")])
+    refresh_idf(clean_db)
+    baseline = clean_db.execute(
+        "SELECT doc_freq FROM idf_stats WHERE token = 'zebra'"
+    ).fetchone()[0]
+    upsert_rows(
+        clean_db,
+        [Row(source="github_issue", source_id="i1#burst_1",
+             document="zebra", metadata={"parent": "i1"})],
+    )
+    refresh_idf(clean_db)
+    after = clean_db.execute(
+        "SELECT doc_freq FROM idf_stats WHERE token = 'zebra'"
+    ).fetchone()[0]
+    assert after == baseline  # burst row did not inflate doc_freq
 
 
 def seed(conn):

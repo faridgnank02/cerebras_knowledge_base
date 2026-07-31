@@ -108,6 +108,30 @@ def clear_watermark(conn: psycopg.Connection, connector: str) -> None:
     conn.execute("DELETE FROM sync_state WHERE connector = %s", (connector,))
 
 
+def load_distill_cache(conn: psycopg.Connection, model: str) -> dict[str, tuple[str, str]]:
+    rows = conn.execute(
+        """
+        SELECT source_id, metadata->>'raw_sha', document FROM embeddings
+        WHERE source = 'github_issue' AND metadata->>'distilled' = 'true'
+          AND metadata->>'distill_model' = %s AND metadata->>'parent' IS NULL
+        """,
+        (model,),
+    ).fetchall()
+    return {sid: (sha, doc) for sid, sha, doc in rows if sha}
+
+
+def delete_stale_children(conn: psycopg.Connection, source: str, seen_ids: list[str]) -> int:
+    cur = conn.execute(
+        """
+        DELETE FROM embeddings
+        WHERE source = %s AND metadata->>'parent' = ANY(%s)
+          AND NOT (source_id = ANY(%s))
+        """,
+        (source, seen_ids, seen_ids),
+    )
+    return cur.rowcount
+
+
 def delete_stale_rows(conn: psycopg.Connection, source: str, keep_ids: list[str]) -> int:
     cur = conn.execute(
         "DELETE FROM embeddings WHERE source = %s AND NOT (source_id = ANY(%s))",

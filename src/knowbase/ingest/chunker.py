@@ -47,7 +47,12 @@ def _split(lines: list[str], offset: int, level: int, max_chars: int) -> list[Ch
             sub = _split(seg, offset + a, level + 1, max_chars)
             if symbol:
                 sub = [
-                    Chunk(c.text, c.start_line, c.end_line, c.symbol or symbol)
+                    Chunk(
+                        c.text,
+                        c.start_line,
+                        c.end_line,
+                        f"{symbol}.{c.symbol}" if c.symbol else symbol,
+                    )
                     for c in sub
                 ]
             chunks.extend(sub)

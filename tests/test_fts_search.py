@@ -39,8 +39,25 @@ def test_empty_idf_stats_degrades_to_uniform_weights(clean_db):
     seed(clean_db)
     clean_db.execute("DELETE FROM idf_stats")
     results = fts_search(clean_db, "int64 serializable", limit=4)
-    ids = [r.source_id for r in results]
-    assert ids[0] == "issue_1"  # matches 2 uniform-weight tokens vs 1
+    assert [r.source_id for r in results] == ["issue_1", "issue_2"]
+    # uniform weight 1.0 per matched lexeme: issue_1 hits both, issue_2 one
+    assert [r.score for r in results] == [2.0, 1.0]
+
+
+def test_burst_rows_are_excluded_from_fts(clean_db):
+    seed(clean_db)
+    upsert_rows(
+        clean_db,
+        [Row(
+            source="github_issue", source_id="issue_1#burst_1",
+            document="int64 serializable int64 serializable",
+            metadata={"parent": "issue_1"},
+        )],
+    )
+    refresh_idf(clean_db)
+    results = fts_search(clean_db, "int64 serializable", limit=5)
+    assert results  # parent rows still found
+    assert all("#burst_" not in r.source_id for r in results)
 
 
 def test_results_carry_updated_at_field(clean_db):
