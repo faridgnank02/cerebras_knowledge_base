@@ -9,5 +9,10 @@ services:
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U knowbase -d knowbase"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
 volumes:
   pgdata:

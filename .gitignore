@@ -5,3 +5,6 @@ __pycache__/
 .superpowers/
 data/
 .serena/
+
+# generated eval scratch (promote numbers into docs/blog/p3-results.md)
+docs/blog/p3-eval-raw.md
