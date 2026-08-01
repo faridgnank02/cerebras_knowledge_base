@@ -15,9 +15,16 @@ search:
   decay_tau_days: 180
   decay_epsilon: 0.00005
 llm:
+  # provider: openai  -> Cerebras / OpenAI / any OpenAI-compatible endpoint (uses base_url)
+  # provider: anthropic -> Claude via the official anthropic SDK (base_url ignored)
+  provider: openai
   base_url: https://api.cerebras.ai/v1
   model: gpt-oss-120b
   max_input_chars: 60000
+  max_tokens: 4096  # output cap; only used by the anthropic provider
+  # --- Claude example ---
+  # provider: anthropic
+  # model: claude-opus-5   # or claude-sonnet-5 / claude-haiku-4-5 for cheaper batch distillation
 bursts:
   idf_threshold: 4.0
   min_chars: 200

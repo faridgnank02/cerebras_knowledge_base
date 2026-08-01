@@ -17,9 +17,11 @@ class Config:
     dsn: str
     decay_tau_days: float = 180.0
     decay_epsilon: float = 0.00005
+    llm_provider: str = "openai"
     llm_base_url: str = "https://api.cerebras.ai/v1"
     llm_model: str = "gpt-oss-120b"
     llm_max_input_chars: int = 60000
+    llm_max_tokens: int = 4096
     burst_idf_threshold: float = 4.0
     burst_min_chars: int = 200
     burst_min_score: int = 1
@@ -41,9 +43,11 @@ def load_config(path: str | Path = "config.yaml") -> Config:
         dsn=os.environ.get("KB_DSN", data["db"]["dsn"]),
         decay_tau_days=float(search.get("decay_tau_days", 180.0)),
         decay_epsilon=float(search.get("decay_epsilon", 0.00005)),
+        llm_provider=str(llm.get("provider", "openai")),
         llm_base_url=llm.get("base_url", "https://api.cerebras.ai/v1"),
         llm_model=llm.get("model", "gpt-oss-120b"),
         llm_max_input_chars=int(llm.get("max_input_chars", 60000)),
+        llm_max_tokens=int(llm.get("max_tokens", 4096)),
         burst_idf_threshold=float(bursts.get("idf_threshold", 4.0)),
         burst_min_chars=int(bursts.get("min_chars", 200)),
         burst_min_score=int(bursts.get("min_score", 1)),
