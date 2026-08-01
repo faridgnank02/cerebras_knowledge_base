@@ -9,7 +9,7 @@
 # Or run stages individually:
 #
 #   ./scripts/run.sh setup    # start pgvector, wait for healthy, uv sync
-#   ./scripts/run.sh ingest   # full re-ingest (clones corpus, ~3k Cerebras calls, 1-3h)
+#   ./scripts/run.sh ingest   # full re-ingest (clones corpus, ~3k LLM calls, 1-3h)
 #   ./scripts/run.sh eval     # run vector/fts/hybrid/hybrid+rerank, capture numbers
 #
 set -euo pipefail
@@ -46,6 +46,17 @@ require_key() {
   [ "$val" != "$placeholder" ] || die "$name is still the placeholder value; put your real key in .env"
 }
 
+require_llm_key() {
+  # Validate an LLM key for whatever provider config.yaml selects, reusing the
+  # app's own resolver (LLM_API_KEY / OPENAI_API_KEY / CEREBRAS_API_KEY, or
+  # ANTHROPIC_API_KEY). Env from .env is already exported by load_env.
+  if uv run python -c "import sys; from knowbase.config import load_config; from knowbase.llm import resolve_api_key; sys.exit(0 if resolve_api_key(load_config().llm_provider) else 1)" 2>/dev/null; then
+    return 0
+  fi
+  local prov; prov=$(uv run python -c "from knowbase.config import load_config; print(load_config().llm_provider)" 2>/dev/null || echo '?')
+  die "No LLM API key set for provider '$prov'. Add the matching key to .env (see .env.example: LLM_API_KEY / OPENAI_API_KEY / CEREBRAS_API_KEY / ANTHROPIC_API_KEY)."
+}
+
 # --- stages -----------------------------------------------------------------
 
 cmd_setup() {
@@ -64,11 +75,11 @@ cmd_setup() {
 
 cmd_ingest() {
   load_env
-  require_key GITHUB_TOKEN      ghp_yourtokenhere
-  require_key CEREBRAS_API_KEY  csk-yourkeyhere
+  require_key GITHUB_TOKEN ghp_yourtokenhere
+  require_llm_key
   compose up -d --wait db
 
-  warn "Full ingest clones the corpus and makes ~3k Cerebras calls (distillation + bursting)."
+  warn "Full ingest clones the corpus and makes ~3k LLM calls (distillation + bursting)."
   warn "Expect roughly 1-3 hours. Leave it running."
   log  "Starting full re-ingest..."
   local t0; t0=$(date +%s)
@@ -90,7 +101,7 @@ run_eval() {
 
 cmd_eval() {
   load_env
-  require_key CEREBRAS_API_KEY csk-yourkeyhere   # needed for the --rerank run
+  require_llm_key   # needed for the --rerank run
   compose up -d --wait db
 
   log "Running eval matrix over the 32-question set; capturing to $RAW_OUT"
@@ -123,11 +134,11 @@ case "${1:-}" in
 usage: ./scripts/run.sh <stage>
 
   setup    start pgvector (waits for healthy) + uv sync
-  ingest   full re-ingest: clone corpus + distill + burst (~3k Cerebras calls, 1-3h)
+  ingest   full re-ingest: clone corpus + distill + burst (~3k LLM calls, 1-3h)
   eval     run vector/fts/hybrid/hybrid+rerank and capture numbers to $RAW_OUT
   all      setup -> ingest -> eval
 
-Before running ingest/eval: copy .env.example to .env and add your GITHUB_TOKEN and CEREBRAS_API_KEY.
+Before running ingest/eval: copy .env.example to .env and add your GITHUB_TOKEN and an LLM API key (matching config.yaml llm.provider).
 EOF
     exit 2 ;;
 esac
