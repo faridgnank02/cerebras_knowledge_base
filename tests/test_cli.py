@@ -29,13 +29,20 @@ MINIMAL_YAML = (
     "db: {dsn: postgresql://x/y}\n"
 )
 
+_KEY_ENVS = ("LLM_API_KEY", "OPENAI_API_KEY", "CEREBRAS_API_KEY", "ANTHROPIC_API_KEY")
+
+
+def _clear_keys(monkeypatch):
+    for name in _KEY_ENVS:
+        monkeypatch.delenv(name, raising=False)
+
 
 def test_ingest_without_key_fails_fast(tmp_path, monkeypatch):
     from typer.testing import CliRunner
 
     from knowbase.cli import app
 
-    monkeypatch.delenv("CEREBRAS_API_KEY", raising=False)
+    _clear_keys(monkeypatch)
     monkeypatch.delenv("KB_DSN", raising=False)
     cfg = tmp_path / "config.yaml"
     cfg.write_text(MINIMAL_YAML)
@@ -43,7 +50,7 @@ def test_ingest_without_key_fails_fast(tmp_path, monkeypatch):
         app, ["ingest", "--source", "github_issues", "--config", str(cfg)]
     )
     assert result.exit_code != 0
-    assert "CEREBRAS_API_KEY" in result.output
+    assert "No LLM API key" in result.output
 
 
 def test_ingest_no_distill_skips_key_check(tmp_path, monkeypatch):
@@ -51,7 +58,7 @@ def test_ingest_no_distill_skips_key_check(tmp_path, monkeypatch):
 
     from knowbase.cli import app
 
-    monkeypatch.delenv("CEREBRAS_API_KEY", raising=False)
+    _clear_keys(monkeypatch)
     monkeypatch.delenv("KB_DSN", raising=False)
     cfg = tmp_path / "config.yaml"
     # unroutable DSN: the command must get PAST the key check, then fail on connect
@@ -59,7 +66,7 @@ def test_ingest_no_distill_skips_key_check(tmp_path, monkeypatch):
     result = CliRunner().invoke(
         app, ["ingest", "--source", "github_issues", "--no-distill", "--config", str(cfg)]
     )
-    assert "CEREBRAS_API_KEY" not in result.output
+    assert "No LLM API key" not in result.output
 
 
 def test_search_rerank_without_key_fails_fast(tmp_path, monkeypatch):
@@ -67,14 +74,14 @@ def test_search_rerank_without_key_fails_fast(tmp_path, monkeypatch):
 
     from knowbase.cli import app
 
-    monkeypatch.delenv("CEREBRAS_API_KEY", raising=False)
+    _clear_keys(monkeypatch)
     cfg = tmp_path / "config.yaml"
     cfg.write_text(MINIMAL_YAML)
     result = CliRunner().invoke(
         app, ["search", "q", "--rerank", "--config", str(cfg)]
     )
     assert result.exit_code != 0
-    assert "CEREBRAS_API_KEY" in result.output
+    assert "No LLM API key" in result.output
 
 
 def test_rerank_requires_hybrid_mode(tmp_path, monkeypatch):
