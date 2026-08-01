@@ -14,6 +14,7 @@ from knowbase.ingest.distill import Distiller
 from knowbase.ingest.embedder import Embedder
 from knowbase.ingest.idf import load_idf, query_lexemes, refresh_idf
 from knowbase.ingest.run import run_ingest
+from knowbase.llm import LLMKeyError, build_llm_client, resolve_api_key
 from knowbase.pipeline.ask import run_ask
 from knowbase.pipeline.planner import Planner
 from knowbase.pipeline.synthesize import Synthesizer
@@ -53,18 +54,18 @@ def _searcher(mode: str, conn, embedder, cfg, reranker=None):
     raise typer.BadParameter(f"unknown mode: {mode} (vector | fts | hybrid)")
 
 
-def _require_key() -> str:
-    api_key = os.environ.get("CEREBRAS_API_KEY")
-    if not api_key:
-        typer.echo("CEREBRAS_API_KEY is not set", err=True)
+def _llm_client(cfg: Config):
+    try:
+        return build_llm_client(cfg)
+    except LLMKeyError as e:
+        typer.echo(str(e), err=True)
         raise typer.Exit(1)
-    return api_key
 
 
 def _build_reranker(cfg: Config, mode: str) -> Reranker:
     if mode != "hybrid":
         raise typer.BadParameter("--rerank requires --mode hybrid")
-    return Reranker(cfg.llm_base_url, _require_key(), cfg.llm_model)
+    return Reranker(cfg.llm_base_url, "", cfg.llm_model, client=_llm_client(cfg))
 
 
 def _ensure_clone(cfg: Config) -> None:
@@ -122,16 +123,18 @@ def ingest(
     cfg = load_config(config)
     distiller = None
     if not no_distill and source in ("github_issues", "all"):
-        api_key = os.environ.get("CEREBRAS_API_KEY")
-        if not api_key:
+        if resolve_api_key(cfg.llm_provider) is None:
             typer.echo(
-                "CEREBRAS_API_KEY is not set; pass --no-distill to ingest without distillation",
+                f"No LLM API key set for provider '{cfg.llm_provider}'; "
+                "pass --no-distill to ingest without distillation, or set a key "
+                "(see .env.example)",
                 err=True,
             )
             raise typer.Exit(1)
         distiller = Distiller(
-            cfg.llm_base_url, api_key, cfg.llm_model,
+            cfg.llm_base_url, "", cfg.llm_model,
             max_input_chars=cfg.llm_max_input_chars,
+            client=_llm_client(cfg),
         )
     conn = _connect(cfg)
     embedder = Embedder(cfg.embedding_model)
@@ -165,7 +168,7 @@ def search(
     ),
     mode: str = typer.Option("hybrid", help="hybrid | vector | fts"),
     rerank: bool = typer.Option(
-        False, "--rerank", help="LLM-rerank the fused pool (needs CEREBRAS_API_KEY)"
+        False, "--rerank", help="LLM-rerank the fused pool (needs an LLM API key)"
     ),
     config: Path = typer.Option(Path("config.yaml")),
 ):
@@ -190,10 +193,10 @@ def ask(
     config: Path = typer.Option(Path("config.yaml")),
 ):
     cfg = load_config(config)
-    api_key = _require_key()
-    planner = Planner(cfg.llm_base_url, api_key, cfg.llm_model)
-    reranker = None if no_rerank else Reranker(cfg.llm_base_url, api_key, cfg.llm_model)
-    synthesizer = Synthesizer(cfg.llm_base_url, api_key, cfg.llm_model)
+    client = _llm_client(cfg)
+    planner = Planner(cfg.llm_base_url, "", cfg.llm_model, client=client)
+    reranker = None if no_rerank else Reranker(cfg.llm_base_url, "", cfg.llm_model, client=client)
+    synthesizer = Synthesizer(cfg.llm_base_url, "", cfg.llm_model, client=client)
     conn = _connect(cfg)
     embedder = Embedder(cfg.embedding_model)
     clone_path = cfg.clone_path if cfg.clone_path.exists() else None
@@ -224,7 +227,7 @@ def eval(
     questions: Path = typer.Option(Path("evals/questions.yaml")),
     mode: str = typer.Option("hybrid", help="hybrid | vector | fts"),
     rerank: bool = typer.Option(
-        False, "--rerank", help="LLM-rerank the fused pool (needs CEREBRAS_API_KEY)"
+        False, "--rerank", help="LLM-rerank the fused pool (needs an LLM API key)"
     ),
     config: Path = typer.Option(Path("config.yaml")),
 ):
