@@ -8,18 +8,25 @@ producing the retrieval numbers the blog posts are built on.
 
 - **Docker** (daemon running) — for the pgvector database.
 - **uv** — Python env + runner.
-- **Two API keys** in a `.env` file at the repo root:
+- **Two API keys** in a `.env` file at the repo root — a GitHub token plus an
+  LLM key for whichever provider `config.yaml`'s `llm.provider` selects:
 
   ```bash
   cp .env.example .env
   # then edit .env:
-  #   GITHUB_TOKEN=ghp_...       # a GitHub PAT (public-repo read scope is enough)
-  #   CEREBRAS_API_KEY=csk-...   # from https://cloud.cerebras.ai
+  #   GITHUB_TOKEN=ghp_...        # a GitHub PAT (public-repo read scope is enough)
+  #   # LLM key — set the one matching config.yaml llm.provider:
+  #   CEREBRAS_API_KEY=csk-...    # provider: openai (Cerebras) — https://cloud.cerebras.ai
+  #   # OPENAI_API_KEY=sk-...     # provider: openai (OpenAI)
+  #   # ANTHROPIC_API_KEY=sk-ant-... # provider: anthropic (Claude)
   ```
 
-  `GITHUB_TOKEN` is used to fetch issues; `CEREBRAS_API_KEY` drives distillation,
-  reranking, and `ask`. The DB DSN, Cerebras base URL, and model live in
-  `config.yaml` — no extra env needed.
+  `GITHUB_TOKEN` fetches issues; the LLM key drives distillation, reranking, and
+  `ask`. Provider, model, base URL, and the DB DSN all live in `config.yaml` —
+  default is Cerebras (`provider: openai` + the Cerebras `base_url`). Switch to
+  Claude with `provider: anthropic` and a `claude-*` model. Key resolution order:
+  `LLM_API_KEY` → `OPENAI_API_KEY`/`CEREBRAS_API_KEY` (openai) or
+  `ANTHROPIC_API_KEY` (anthropic).
 
 ## One command
 
