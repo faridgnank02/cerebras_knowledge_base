@@ -1,54 +1,98 @@
-# P4 — LLM rerank + context expansion: measurement
+# P4 results — LLM rerank + context expansion (2026-08-01)
 
-**Date:** 2026-07-20
-**Corpus state:** P1-era ingest — 3,000 issue rows (no distillation, no burst rows)
-+ 687 code chunks. `CEREBRAS_API_KEY` is not configured on this machine, so the
-P3 distillation ingest and every LLM-dependent measurement below are **blocked**;
-the LLM-free legs were measured now so the delta is one command away once the
-key lands.
+**Corpus state:** the real P3 corpus — 16,315 documents (3,002 distilled/fallback
+issue parents, 12,626 burst rows, 687 code chunks). Same 31-question eval set as
+P1–P3. Measured with `uv run kb eval --mode hybrid --rerank` (`scripts/run.sh eval`);
+raw capture in `p3-eval-raw.md`.
 
-## Baseline (this corpus, eval set of 31 questions)
+This file was a placeholder for weeks — the LLM-dependent legs were blocked on an
+API key. They are now measured.
 
-| mode | recall@1 | recall@3 | recall@10 | MRR |
+## The result
+
+All four configurations, one eval set, one corpus:
+
+| Metric | vector | fts | hybrid | **hybrid + rerank** |
 |---|---|---|---|---|
-| vector | 0.68 | 0.84 | 0.90 | 0.77 |
-| fts | 0.42 | 0.48 | 0.65 | 0.47 |
-| hybrid (RRF) | 0.61 | 0.65 | 0.90 | **0.67** |
+| recall@1  | 0.52 | 0.45 | 0.39 | **0.87** (27/31) |
+| recall@3  | 0.71 | 0.55 | 0.65 | **0.94** (29/31) |
+| recall@10 | 0.81 | 0.65 | **0.94** | **0.94** (29/31) |
+| MRR       | 0.63 | 0.50 | 0.57 | **0.90** |
 
-The headline: **hybrid trails vector-only on MRR (0.67 vs 0.77)** while matching
-it at recall@10. RRF gets the right document *into* the top 10 but the FTS leg
-drags it down the ranking on semantic queries — exactly the regression P3
-deliberately left in place, and the still-open PR #2 question of whether hybrid
-should stay the default. P4's bet is that a reranker on top of the fused pool
-keeps hybrid's recall while recovering vector's precision.
-
-Hybrid misses (recall@10): `jsonable_encoder` paraphrase, background-tasks
-internals, websocket ASGI error paste — the first two are vocabulary-mismatch
-cases distillation (P3) should address; the last needs the raw-thread FTS hit to
-survive reranking.
-
-## Blocked: the P4 delta (run when CEREBRAS_API_KEY is set)
-
-```bash
-# 1. true P3 corpus first (distillation + bursts):
-uv run kb ingest --source github_issues --full
-# 2. before/after on the same corpus:
-uv run kb eval --mode hybrid
-uv run kb eval --mode hybrid --rerank
+```
+mode: hybrid +rerank
+recall@1: 0.87 (27/31)
+recall@3: 0.94 (29/31)
+recall@10: 0.94 (29/31)
+MRR: 0.90
+  MISS: Which function converts arbitrary objects into JSON-compatible data structures?
+  MISS: Where does FastAPI implement running background tasks after a response is returned?
 ```
 
-What to look for:
+## Headline: the reranker is the first unqualified win in the series
 
-- **MRR and recall@1/3 of `hybrid --rerank` vs both `hybrid` and `vector`.**
-  If rerank ≥ vector on MRR while keeping hybrid's recall@10, hybrid(+rerank)
-  becomes the defensible default and PR #2's question is answered.
-- The three hybrid misses above: does the reranker pull the right row from the
-  20-doc fused pool into the top 3?
-- Cost/latency: one Cerebras call per query, ~20 candidates × ~1200 chars.
+The reranker takes hybrid's fused 20-document pool — great recall (0.94), terrible
+ordering (MRR 0.57, recall@1 0.39) — and reorders it. The effect is dramatic:
 
-## Context expansion (qualitative, for the blog)
+- **MRR 0.57 → 0.90** (+0.33)
+- **recall@1 0.39 → 0.87** (+0.48)
+- **recall@10 unchanged at 0.94** — rerank only reorders; it cannot add a document
+  the fused pool didn't already contain.
 
-`kb ask` now re-attaches neighbors before synthesis: adjacent chunks for a code
-hit, the full raw thread for a burst hit. Show one example of each in the post —
-a function whose decorator/imports live in the neighboring chunk, and a burst
-row whose two-line comment only makes sense with the thread around it.
+It keeps hybrid's recall and *far exceeds* standalone vector's precision (MRR 0.63,
+recall@1 0.52). This is the payoff P3 set up: bursting raised recall@10 to 0.94, and
+the reranker converts that ceiling into precision.
+
+## This answers PR #2's open question
+
+Since P2 the open question has been: *is hybrid worth keeping as the default, or
+should we revert to plain vector?* Standalone, hybrid loses to vector on MRR (0.57 vs
+0.63) — the P2 verdict held even on the cleaner corpus. But **hybrid + rerank
+dominates every single-retriever configuration on every metric.** The defensible
+default is settled:
+
+> **`hybrid --rerank` is the default retriever.** Hybrid provides the recall pool
+> (0.94 recall@10); the reranker provides the ordering (0.90 MRR). Neither is
+> sufficient alone.
+
+Plain vector remains a reasonable low-cost fallback (no LLM call, MRR 0.63); FTS-only
+is for exact-string debugging. But the shipped default is hybrid + rerank.
+
+## What still misses (and why rerank can't fix it)
+
+The same two questions that miss under hybrid also miss under rerank:
+
+- *"Which function converts arbitrary objects into JSON-compatible data
+  structures?"* → `jsonable_encoder`
+- *"Where does FastAPI implement running background tasks after a response is
+  returned?"* → `background.py`
+
+This is a structural limit, not a tuning problem: **the reranker can only reorder the
+fused top-20; if the correct code chunk never enters that pool, no amount of
+reranking retrieves it.** Both are natural-language code-location lookups where the
+answer is a code chunk sharing only diffuse vocabulary with the query. The fix is a
+different retriever, not a better ranker — which is exactly P5's `grep_code` /
+`who_knows` symbol retrievers behind a planner.
+
+## Context expansion (qualitative, for the post)
+
+`kb ask` re-attaches neighbors before synthesis: adjacent code chunks for a code hit,
+the full raw thread for a burst hit. Two examples worth showing in the write-up:
+
+- a code hit whose decorator/imports live in the neighboring chunk (expansion
+  restores the context the chunk boundary cut);
+- a burst hit whose two-line resolving comment only makes sense with the surrounding
+  thread re-attached.
+
+Expansion is not scored by `kb eval` (which measures retrieval, not the synthesized
+answer), so it stays qualitative here.
+
+## Mechanics recap
+
+- **Reranker:** one LLM call per query over the ~20-doc fused pool, strict
+  `json_schema` structured output (ranked ids + scores), RRF-order fallback on
+  failure. `kb search/eval --rerank` (requires `--mode hybrid`).
+- **Cost/latency:** one extra LLM call per query (~20 candidates × ~1.2k chars in the
+  prompt). Retrieval legs are LLM-free; only the rerank leg calls the model.
+- **Provider:** measured with `gpt-5.6-luna` via an OpenAI-compatible endpoint;
+  provider-agnostic (Cerebras / OpenAI / Claude).
