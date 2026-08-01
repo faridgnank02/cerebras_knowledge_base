@@ -63,8 +63,19 @@ class GitHubIssuesConnector:
 
     def _get(self, url: str, params: dict) -> httpx.Response:
         retries = 0
+        net_retries = 0
         while True:
-            resp = self.client.get(url, params=params)
+            try:
+                resp = self.client.get(url, params=params)
+            except httpx.TransportError:
+                # Transient network failure (read/connect timeout, dropped
+                # connection). A single blip must not kill a multi-hour ingest,
+                # so back off and retry before giving up.
+                if net_retries >= 5:
+                    raise
+                self._sleep(2**net_retries)  # 1, 2, 4, 8, 16s
+                net_retries += 1
+                continue
             if resp.status_code in (403, 429) and retries < 5:
                 wait = self._retry_wait(resp)
                 if wait is not None:

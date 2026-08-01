@@ -110,6 +110,43 @@ def test_rate_limit_gives_up_after_cap():
     assert calls["n"] == 6  # initial attempt + 5 retries
 
 
+def test_retries_on_transient_network_error():
+    calls = {"n": 0}
+    slept = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ReadTimeout("timed out", request=request)
+        return httpx.Response(200, json=[])
+
+    conn = GitHubIssuesConnector(
+        "fastapi/fastapi", token=None, max_issues=10, client=_client(handler),
+        sleep=slept.append,
+    )
+    assert list(conn.fetch(None)) == []
+    assert calls["n"] == 2  # first attempt raised, retry succeeded
+    assert slept == [1]  # one backoff before the retry
+
+
+def test_network_error_gives_up_after_cap():
+    calls = {"n": 0}
+    slept = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        raise httpx.ConnectError("boom", request=request)
+
+    conn = GitHubIssuesConnector(
+        "fastapi/fastapi", token=None, max_issues=10, client=_client(handler),
+        sleep=slept.append,
+    )
+    with pytest.raises(httpx.TransportError):
+        list(conn.fetch(None))
+    assert calls["n"] == 6  # initial attempt + 5 retries
+    assert slept == [1, 2, 4, 8, 16]  # exponential backoff
+
+
 def test_null_user_becomes_ghost():
     issue = {**ISSUE, "user": None, "comments": 1}
     comments_null = [{"user": None, "body": "fixed it"}]
