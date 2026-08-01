@@ -72,6 +72,7 @@ def main():
     from knowbase import db as db_mod
     from knowbase.config import load_config
     from knowbase.ingest.embedder import Embedder
+    from knowbase.llm import LLMKeyError, build_llm_client
     from knowbase.pipeline.ask import run_ask
     from knowbase.pipeline.planner import Planner
     from knowbase.pipeline.synthesize import Synthesizer
@@ -82,7 +83,6 @@ def main():
     conn = db_mod.connect(cfg.dsn)
     db_mod.init_db(conn, dims=cfg.embedding_dims)
     embedder = Embedder(cfg.embedding_model)
-    api_key = os.environ.get("CEREBRAS_API_KEY")
 
     def search_fn(query, limit):
         return hybrid_search(
@@ -91,11 +91,13 @@ def main():
         )
 
     def ask_fn(question):
-        if not api_key:
-            raise RuntimeError("CEREBRAS_API_KEY is not set; ask is unavailable")
-        planner = Planner(cfg.llm_base_url, api_key, cfg.llm_model)
-        reranker = Reranker(cfg.llm_base_url, api_key, cfg.llm_model)
-        synthesizer = Synthesizer(cfg.llm_base_url, api_key, cfg.llm_model)
+        try:
+            client = build_llm_client(cfg)
+        except LLMKeyError as e:
+            raise RuntimeError(f"{e}; ask is unavailable") from e
+        planner = Planner(cfg.llm_base_url, "", cfg.llm_model, client=client)
+        reranker = Reranker(cfg.llm_base_url, "", cfg.llm_model, client=client)
+        synthesizer = Synthesizer(cfg.llm_base_url, "", cfg.llm_model, client=client)
         clone_path = cfg.clone_path if Path(cfg.clone_path).exists() else None
         return run_ask(
             conn, embedder, cfg, clone_path, question,
