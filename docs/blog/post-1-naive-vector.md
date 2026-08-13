@@ -151,8 +151,14 @@ Naive vector-only search solved recall@10 and left a specific, well-defined hole
 lookalikes.** That is the textbook motivation for hybrid retrieval — dense vectors *and*
 keyword search, fused together.
 
-So in post 2 I add full-text search and reciprocal-rank fusion, re-run the exact same
-eval, and find out whether hybrid actually fixes those queries.
+So in [post 2](post-2-hybrid-retrieval.md) I add full-text search and reciprocal-rank
+fusion, re-run the exact same eval, and find out whether hybrid actually fixes those
+queries.
 
 The answer surprised me. It's not a clean win — and the way it fails is more instructive
 than a win would have been.
+
+---
+
+*The full 22-question eval and the k=1 miss list are in
+[`p1-baseline.md`](p1-baseline.md).*

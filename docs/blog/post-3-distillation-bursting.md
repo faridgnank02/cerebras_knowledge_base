@@ -100,10 +100,11 @@ it has a completely different fix. You don't need more recall. You need somethin
 can look at 20 candidates and say *"this one, not that one."* Rank-based fusion
 can't. An LLM can.
 
-Which is post 4. The reranker goes over hybrid's fused top-20 and reorders it — and
-for the first time in this series, a change is an unqualified win: MRR 0.57 → **0.90**,
-recall@1 0.39 → **0.87**, on this exact corpus and eval set. P3 didn't raise the
-score. It built the pile of candidates that post 4's reranker finally sorts.
+Which is [post 4](post-4-rerank.md). The reranker goes over hybrid's fused top-20 and
+reorders it — and for the first time in this series, a change is an unqualified win:
+MRR 0.57 → **0.90**, recall@1 0.39 → **0.87**, on this exact corpus and eval set. P3
+didn't raise the score. It built the pile of candidates that post 4's reranker finally
+sorts.
 
 ## The two that P3 couldn't touch
 
@@ -117,8 +118,9 @@ Two questions miss even at hybrid recall@10, and they'll miss in post 4 too:
 Both are **code-location lookups phrased in English**: the answer is a code chunk that
 shares only diffuse vocabulary with the question. Distillation and bursting only touch
 the *issue* side of the corpus — they never rewrite code — so these were always out of
-reach here. They're the clean argument for post 5's dedicated symbol retrievers.
-Retrieval tuning won't reach them; a different retriever will.
+reach here. They're the clean argument for [post 5](post-5-planner-synthesis.md)'s
+dedicated symbol retrievers. Retrieval tuning won't reach them; a different retriever
+will.
 
 ---
 

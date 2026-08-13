@@ -153,16 +153,17 @@ But "revert it" is the wrong lesson. Hybrid isn't failing because keyword search
 useless — it's failing for two fixable reasons, and neither is "add lexical search":
 
 - **The corpus is the problem.** Raw issue threads bury one resolving comment under
-  dozens of noisy ones, which is *why* topical chatter outranks real answers. Post 3
-  attacks this directly: distill each thread with an LLM, and "burst" out the high-signal
-  comments so the answer isn't drowned by its own thread.
-- **The fusion is the problem.** RRF can't express confidence, so post 4 puts an LLM
-  reranker over the fused pool — which *can* look at a candidate and say "no, that's just
-  topically related."
+  dozens of noisy ones, which is *why* topical chatter outranks real answers.
+  [Post 3](post-3-distillation-bursting.md) attacks this directly: distill each thread
+  with an LLM, and "burst" out the high-signal comments so the answer isn't drowned by
+  its own thread.
+- **The fusion is the problem.** RRF can't express confidence, so
+  [post 4](post-4-rerank.md) puts an LLM reranker over the fused pool — which *can* look
+  at a candidate and say "no, that's just topically related."
 
 Hybrid retrieval, it turns out, isn't the fix. It's the scaffolding the actual fixes hang
-off of. Post 3 rebuilds the corpus and re-runs this exact eval to find out whether a
-cleaner corpus changes the verdict.
+off of. [Post 3](post-3-distillation-bursting.md) rebuilds the corpus and re-runs this
+exact eval to find out whether a cleaner corpus changes the verdict.
 
 ---
 
