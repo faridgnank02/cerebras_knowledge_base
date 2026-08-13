@@ -84,8 +84,17 @@ a result. Chunking splits documents, and the split routinely lands between a fun
 and the decorator or imports that explain it, or isolates a two-line resolving comment
 from the thread that gives it meaning. So before synthesis, `kb ask` re-attaches
 neighbors: adjacent code chunks for a code hit, the full raw thread for a burst hit.
+
+A concrete case: a query about returning a custom status code from a dependency
+matches `fastapi/applications.py#put@2` — the middle of the `put` method, where the
+`status_code` parameter is documented. On its own that chunk is a floating docstring.
+Expansion re-attaches the neighboring chunk that holds the method's actual signature
+(`def put(self, path: Annotated[str, …], *, response_model: …`), so the citation
+arrives with the code that gives it meaning instead of a fragment.
+
 The reranker decides *which* document; expansion makes sure that document arrives with
-enough around it to be worth reading.
+enough around it to be worth reading. [Post 5](post-5-planner-synthesis.md) shows the
+mechanism in full, including a burst hit reunited with its thread.
 
 ## The ceiling the reranker can't lift
 
