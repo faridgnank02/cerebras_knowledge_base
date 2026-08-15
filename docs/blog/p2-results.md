@@ -8,12 +8,15 @@ canonical_url:
 cover_image:
 ---
 
-**P2 results: hybrid retrieval (2026-07-19).**
+This is the raw data behind [part 2](post-2-hybrid-retrieval.md); the narrative lives there.
+Below is the full vector/fts/hybrid measurement and the query-by-query breakdown.
 
-Same corpus and eval set as `p2-baseline.md`: 3,000 issue threads plus 687 code chunks, 31
+**P2 results: hybrid retrieval.**
+
+Same corpus and eval set as the P1 baseline: 3,000 issue threads plus 687 code chunks, 31
 questions (`uv run kb eval`). `vector` mode reproduces the baseline numbers exactly (same
 recall@1/3/10, same MRR, same 3 top-10 misses), confirming the corpus and eval set are
-unchanged since P1/P2-baseline measurement.
+unchanged since the P1 measurement.
 
 | Metric | vector (P1) | fts | hybrid (P2) |
 |---|---|---|---|
@@ -79,8 +82,8 @@ it rescues questions where vector search was wrong. The net MRR effect is negati
 
 ## Where hybrid won
 
-Re-running the 5 k=1 misses carried over from the P1 baseline (`docs/blog/p1-baseline.md`,
-"Misses at k=1") with `--mode vector` and `--mode hybrid`, `--limit 5`:
+Re-running the 5 k=1 misses carried over from the [P1 baseline](p1-baseline.md) with
+`--mode vector` and `--mode hybrid`, `--limit 5`:
 
 - **"TypeError: Object of type int64 is not JSON serializable"** (expected `issue_15085`):
   vector rank 5 to hybrid rank 1. This is the strongest single result for hybrid, an exact
@@ -145,7 +148,7 @@ similarity is genuinely ambiguous between two or three candidates. On this 31-qu
 ~3.7k-document corpus, the queries where hybrid hurts outnumber the queries where it helps;
 recall@3 is the metric that shows this most clearly (0.84 down to 0.65).
 
-## Mechanics recap for the post
+## Mechanics recap
 
 RRF k=60 over (vector top-50, IDF-weighted FTS top-50), per-file cap 3, age-decay tie-breaker
 eps=5e-5 tau=180d. FTS ranking is the sum of IDF over matched query lexemes (ts_stat-backed; no
@@ -160,6 +163,6 @@ TF, no length norm).
   degenerate zero-file corpus without cleanup. It did not fire during this run (the walk was
   non-empty).
 - **Comment pagination fix has no live example in this corpus.** The largest thread in this
-  3,000-issue window has 93 comments (`docs/blog/p2-baseline.md`), so no thread here actually
-  exercises pagination past the 100-comment page boundary. The fix (task 6) is unit-tested only;
-  nothing in this measurement run is affected by it either way.
+  3,000-issue window has 93 comments, so no thread here actually exercises pagination past the
+  100-comment page boundary. That fix is unit-tested only; nothing in this measurement run is
+  affected by it either way.

@@ -8,12 +8,14 @@ canonical_url:
 cover_image:
 ---
 
-**P3 results: distillation + bursting (2026-08-01).**
+This is the raw data behind [part 3](post-3-distillation-bursting.md); the narrative lives
+there. Below is the full measurement on the rebuilt corpus.
+
+**P3 results: distillation + bursting.**
 
 Same 31-question eval set as P1/P2, but a rebuilt corpus: every issue thread distilled to a
 clean Q&A document by an LLM, and high-signal comments "burst" out into their own vector-only
-rows. Measured with `uv run kb eval` (`scripts/run.sh eval`); full raw capture in
-`p3-eval-raw.md`.
+rows. Measured with `uv run kb eval`.
 
 **Corpus:** 16,315 documents (3,002 issue parents [2,542 distilled, 460 raw-fallback ≈ 15%],
 12,626 burst rows, 687 code chunks). Compare P1/P2's ~3,700-document, burst-free corpus.
